@@ -1,0 +1,59 @@
+# Python and environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Credentials and machine-local configuration
+.env
+.env.*
+*.pem
+*.key
+*credential*
+*secret*
+
+# Raw datasets, participant media and large arrays
+data/
+dataset/
+datasets/
+raw_data/
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.pgm
+*.hdf5
+*.h5
+*.mat
+*.npy
+*.npz
+
+# Models, third-party source and generated experiment state
+models/
+checkpoints/
+third_party/
+experiments/
+output/
+runtime/
+logs/
+tmp/
+
+# Documents and editor noise
+*.docx
+*.pdf
+*.pptx
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.bak
+~$*
+

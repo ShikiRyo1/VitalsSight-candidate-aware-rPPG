@@ -1,0 +1,127 @@
+{
+  "task_id": "T385",
+  "created_at": "2026-06-20T05:29:05",
+  "policy_contract_version": "t385.t382_t380_uncertainty_locked.v1",
+  "lock_hash": "db5ef47817f67120bf57d819231e445261a7507a785ab9ba5ebb76869d11e345",
+  "source_task_chain": "T357->T376->T379->T380->T381->T382->T383->T384->T385",
+  "product_mode": "t380_uncertainty_aware_experimental_policy",
+  "source_hashes": {
+    "t380_features": "9a98531b0784fd46e5483edb106c6d0d4b25dabe8de771bc51e1eb1d892ed27d",
+    "t380_summary": "c44d4d49ed83f3963127962b28d865fdc6a664bdad8742815fccc18e1b42bdc5",
+    "t381_summary": "6cbe976104ef7a646a4bcf3d97860817d40c97be190cb92c212572c41ba8acd4",
+    "t382_product": "c6cc846530b49a0a95d43fabc6754fe35dd9da8246ab3134518c35e6c1455d24",
+    "t382_summary": "67b60a0c2680c0fe961421b737d0ea2f93a303d8583432551c921761cf3731d8",
+    "t383_summary": "373a24e8b0474118e6c278d1a92b1af1f6a8bc085da04f47e34b83efa0859853",
+    "t384_summary": "40dace3d6daf9a88cf81d98c92960b364fa5c54162f6003c410fb1ac41adf573"
+  },
+  "frozen_scorer": {
+    "feature_columns": [
+      "product_hr_bpm",
+      "repair_probability",
+      "window_candidate_count",
+      "is_after",
+      "is_usb",
+      "is_iriun",
+      "is_front",
+      "is_left",
+      "is_right",
+      "hr_mid_after",
+      "hr_highish",
+      "hr_before_110_120"
+    ],
+    "feature_fill_medians": {
+      "hr_before_110_120": 0.0,
+      "hr_highish": 0.0,
+      "hr_mid_after": 0.0,
+      "is_after": 0.0,
+      "is_front": 0.0,
+      "is_iriun": 0.0,
+      "is_left": 0.0,
+      "is_right": 0.0,
+      "is_usb": 0.0,
+      "product_hr_bpm": 120.0,
+      "repair_probability": 0.8918081902,
+      "window_candidate_count": 24.0
+    },
+    "frozen_decision_rule": {
+      "applies_to": "MCD-rPPG source_aware_repair candidate groups with the exact T380 feature schema",
+      "frozen_topk_count": 12,
+      "no_recalibration_allowed_during_locked_validation": true,
+      "review_if": "frozen_risk_score >= risk_threshold",
+      "risk_threshold": 0.7454263403,
+      "t380_cv_selected_count": 12,
+      "t380_cv_selected_overlap_count": 11,
+      "top_k_calibration": 12
+    },
+    "logistic_regression_coefficients": {
+      "hr_before_110_120": 1.0246321327,
+      "hr_highish": 1.3118517781,
+      "hr_mid_after": -0.1182388082,
+      "is_after": -0.945163487,
+      "is_front": -0.1170003327,
+      "is_iriun": -0.1338528927,
+      "is_left": 0.2520563654,
+      "is_right": -0.1338528927,
+      "is_usb": 0.2520563654,
+      "product_hr_bpm": -0.4032314551,
+      "repair_probability": -3.2140221021,
+      "window_candidate_count": -0.2248245734
+    },
+    "logistic_regression_intercept": -3.1886362986,
+    "model_type": "standard_scaler_plus_logistic_regression_balanced",
+    "risk_score_is_probability": true,
+    "standard_scaler_mean": {
+      "hr_before_110_120": 0.4113924051,
+      "hr_highish": 0.3734177215,
+      "hr_mid_after": 0.4620253165,
+      "is_after": 0.4936708861,
+      "is_front": 0.335443038,
+      "is_iriun": 0.335443038,
+      "is_left": 0.3291139241,
+      "is_right": 0.335443038,
+      "is_usb": 0.3291139241,
+      "product_hr_bpm": 123.3691930454,
+      "repair_probability": 0.8879872109,
+      "window_candidate_count": 23.9367088608
+    },
+    "standard_scaler_scale": {
+      "hr_before_110_120": 0.4920860637,
+      "hr_highish": 0.4837116153,
+      "hr_mid_after": 0.4985558378,
+      "is_after": 0.4999599407,
+      "is_front": 0.4721451114,
+      "is_iriun": 0.4721451114,
+      "is_left": 0.4698914226,
+      "is_right": 0.4721451114,
+      "is_usb": 0.4698914226,
+      "product_hr_bpm": 12.9334368836,
+      "repair_probability": 0.0323653537,
+      "window_candidate_count": 1.3201627455
+    },
+    "training_rows": 158,
+    "unsafe_training_rows": 9
+  },
+  "frozen_decision_outputs": {
+    "release": "return product_hr_bpm only when the frozen policy releases the estimate",
+    "review": "withhold product_hr_bpm and return review/retest reason",
+    "forbidden_runtime_fields": [
+      "eval_gt_hr_bpm",
+      "eval_abs_error_bpm",
+      "gt_hr_bpm",
+      "ground_truth",
+      "label"
+    ]
+  },
+  "no_retuning_rules": [
+    "Do not change feature columns after inspecting locked validation metrics.",
+    "Do not change scaler, coefficients, intercept, threshold, top-k calibration, or branch-specific exceptions during locked validation.",
+    "Do not use ground-truth HR, absolute error, unsafe labels, subject identity leakage, or dataset-specific post-hoc exceptions in product decisions.",
+    "If an adapter cannot produce the frozen feature schema, report it as an adapter gap rather than changing the policy.",
+    "Any policy modification after T385 must start a new development branch and cannot be mixed with T386 locked-validation evidence."
+  ],
+  "locked_validation_boundary": {
+    "final_claim_ready_after_t385": false,
+    "gpu_training_authorized_after_t385": false,
+    "why": "T385 freezes the protocol but does not run the locked replay or published-baseline statistics."
+  }
+}

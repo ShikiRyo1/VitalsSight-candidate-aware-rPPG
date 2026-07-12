@@ -1,0 +1,13 @@
+{
+  "task_id": "T241",
+  "based_on": "T240 context-aware high-HR guard grid",
+  "policy_name": "t240_context_aware_high_hr_candidate_v1",
+  "display_only": true,
+  "product_default_release": false,
+  "selected_min_bpm": 100.0,
+  "gap_max_bpm": 1.0,
+  "roi_min": 3,
+  "method_min": 5,
+  "combined_roi_method_min": 10,
+  "validation_boundary": "Candidate flag only until validated on MCD-rPPG post-exercise or UBFC-Phys stress-task data."
+}

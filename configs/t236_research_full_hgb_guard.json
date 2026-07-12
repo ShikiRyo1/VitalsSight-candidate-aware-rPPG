@@ -1,0 +1,34 @@
+{
+  "task_id": "T236",
+  "date": "2026-06-17",
+  "policy_name": "research_full_hgb_review_recommendation",
+  "model_name": "research_full_hgb",
+  "model_type": "HistGradientBoostingClassifier",
+  "feature_contract": "research_full_t234_v1",
+  "feature_columns": [
+    "selected_bpm",
+    "max_power_candidate_bpm",
+    "gap",
+    "t214_score",
+    "roi_support",
+    "method_support",
+    "anchor_roi_support",
+    "low_selected",
+    "high_selected",
+    "support_sum",
+    "gap_per_support",
+    "score_gap"
+  ],
+  "threshold": 0.9574839184152547,
+  "threshold_selection": {
+    "objective": 0.3102678571428571,
+    "threshold": 0.9574839184152547,
+    "train_coverage": 0.8897321428571429,
+    "train_unsafe_block_rate": 0.11026785714285714,
+    "train_safe_block_rate": 0.0
+  },
+  "unsafe_bpm_threshold": 10.0,
+  "training_rows": 2240,
+  "group_column": "base_sample_id",
+  "claim_boundary": "Frozen reliability guard for research/product smoke testing. OOF metrics, not in-sample artifact scores, should be used as evidence."
+}

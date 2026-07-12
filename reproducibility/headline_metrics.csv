@@ -1,0 +1,7 @@
+protocol_key,dataset,statistical_unit,method,mae_bpm,rmse_bpm,within_10_bpm_pct,coverage,released_mae_bpm,released_error_gt10_pct,interpretation
+PRIMARY-UBFC-3SEED-v1,UBFC-rPPG,439 repeated windows from 42 participants,VitalsSight,1.646 +/- 0.051,4.946 +/- 0.186,96.8 +/- 0.0,1.000,1.646 +/- 0.051,3.2 +/- 0.0,Internal protocol estimate; dispersion is across model seeds
+PRIMARY-UBFC-SUBJECT-EQUAL-v1,UBFC-rPPG,42 participant-equal units,VitalsSight,1.662,NA,NA,NA,NA,NA,Point estimate without participant-cluster confidence interval
+STRESS-MCD-SUBJECT-EQUAL-v1,MCD-rPPG,6 participant-equal units,VitalsSight,17.231,NA,NA,0.450,7.928,7.4,Protocol-specific stress evidence
+STRESS-RPPG10-v1,rPPG-10,26 participant-level units,VitalsSight,7.136,12.285,76.9,0.769,2.102,0.0,Descriptive external stress evidence
+BOUNDARY-SCAMPS-FULL-v1,SCAMPS-full,2800 synthetic samples,VitalsSight,29.009,42.939,NA,1.000,29.015,54.6,Synthetic failure boundary
+

@@ -1,0 +1,36 @@
+{
+  "task_id": "T307",
+  "generated_at": "2026-06-18T19:34:20",
+  "purpose": "Freeze reliability/review policies for external replay and stop further MCD-test-driven tuning.",
+  "leakage_boundary": {
+    "mcd_test_status": "internal_exploratory_audit_only_after_T288_T306_repeated_inspection",
+    "final_claim_requirement": "No additional threshold/model choices may be made from MCD test outcomes. Final claims require external or fresh locked holdout replay.",
+    "development_source": "MCD train+validation development candidates used in T306 because train-only selected candidates had no unsafe positives."
+  },
+  "frozen_primary_policy": {
+    "policy": "gbr_dev_review_ge_0.65",
+    "model": "gbr",
+    "review_threshold": 0.65,
+    "coverage_floor": 0.9,
+    "intended_use": "balanced adult-care MVP publish/review tier"
+  },
+  "frozen_secondary_policy": {
+    "policy": "gbr_dev_review_ge_0.50",
+    "model": "gbr",
+    "review_threshold": 0.5,
+    "coverage_floor": 0.85,
+    "intended_use": "more cautious care-monitoring tier"
+  },
+  "external_replay_rules": [
+    "Use the frozen feature contract and thresholds before inspecting external labels.",
+    "Do not tune thresholds or model hyperparameters on UBFC, DLCN, 4TU, MR-NIRP, or future held-out data.",
+    "If a feature is unavailable in an external adapter, mark the sample as adapter_blocked or use the pre-declared fallback only; do not create dataset-specific thresholds.",
+    "Primary endpoint: unsafe/input reduction against t305_selected_release_all at the same external samples.",
+    "Secondary endpoints: released MAE, coverage, unsafe/released, and by-domain failure taxonomy."
+  ],
+  "paper_success_bar": {
+    "minimum_product_candidate": "Coverage >=85% and unsafe/input lower than release-all on adult external replay.",
+    "q1_claim_candidate": "Paired bootstrap CI for unsafe/input reduction excludes zero on pooled external replay, with no clinically unacceptable released-MAE degradation.",
+    "must_report": "Coverage tradeoff, review burden, failure cases, domain strata, and calibration boundary."
+  }
+}

@@ -1,0 +1,16 @@
+numpy
+pandas
+scipy
+scikit-learn
+matplotlib
+plotly
+tqdm
+pyyaml
+h5py
+opencv-python
+mediapipe
+streamlit
+fastapi
+uvicorn
+python-multipart
+python-docx

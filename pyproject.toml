@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vitalssight"
+version = "0.1.0"
+description = "Candidate-aware camera-based heart-rate estimation with release/review outputs"
+readme = "README.md"
+requires-python = ">=3.10,<3.12"
+dependencies = [
+  "numpy",
+  "pandas",
+  "scipy",
+  "scikit-learn",
+  "opencv-python",
+  "pyyaml",
+]
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+

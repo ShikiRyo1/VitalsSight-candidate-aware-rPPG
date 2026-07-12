@@ -1,0 +1,40 @@
+{
+  "policy_name": "t57_calibrated_confidence_refusal",
+  "policy_id": "confidence_min_0.050",
+  "anchor_estimator": "optical_flow_y_body_aware_half_validated",
+  "calibration_source": "T57 subject-level validation split over T56 full usable AIR windows",
+  "selection_rule": "minimum validation MAE among calibrated policies satisfying min_validation_coverage",
+  "required_input_fields": [
+    "candidate_rr_bpm",
+    "confidence",
+    "decision",
+    "raw_confidence",
+    "half_power_ratio",
+    "previous_bpm",
+    "roi_quality"
+  ],
+  "decision_logic": {
+    "family": "confidence_min",
+    "threshold": 0.05,
+    "accept_if": "candidate_rr_bpm is finite and confidence >= threshold",
+    "product_rr_bpm": "candidate_rr_bpm when accepted, otherwise null",
+    "refusal_reason": "calibrated_low_confidence"
+  },
+  "calibration_constraints": {
+    "min_validation_coverage": 0.85,
+    "validation_fraction_by_dataset_subject": 0.4
+  },
+  "validation_air_all": {
+    "coverage": 0.9126506024096386,
+    "mae_bpm": 5.013349212279718,
+    "rmse_bpm": 8.163193043818818,
+    "pearson": 0.16138281936115767
+  },
+  "heldout_test_air_all": {
+    "coverage": 0.924066924066924,
+    "mae_bpm": 3.0735902927418923,
+    "rmse_bpm": 5.79750162379714,
+    "pearson": 0.12417891685958625
+  },
+  "status": "first_pass_research_policy_not_clinical_device"
+}
