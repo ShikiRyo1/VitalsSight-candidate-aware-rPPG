@@ -14,7 +14,7 @@ import pandas as pd
 
 
 SCHEMA_VERSION = "vitalssight.console.case.v1"
-REPORT_VERSION = "vitalssight.evidence-report.v1"
+REPORT_VERSION = "vitalssight.evidence-report.v2"
 POLICY_VERSION = "public_candidate_release_gate.v1"
 MODEL_VERSION = "public_research_artifact.2026-07"
 CLAIM_BOUNDARY = (
@@ -113,6 +113,47 @@ CONSOLE_TEXT_ZH = {
     "request_retake": "请求重采",
     "retain_for_research_review": "保留用于研究复核",
     "close_without_release": "关闭且不放行",
+    "Release criteria passed; preserve the result with its evidence packet.": "放行条件已通过；请将结果与证据包一并保留。",
+    "Automatic reporting is withheld until the highlighted evidence is reviewed.": "在完成高亮证据复核前，系统不会自动发布结果。",
+    "Acquisition criteria were not met; correct the highlighted input conditions and repeat.": "采集条件未达到要求；请修正高亮输入条件后重新采集。",
+    "Observed evidence met the configured release conditions. The estimate remains bounded to this evidence packet.": "观测证据满足既定放行条件；该估计仅在本证据包范围内成立。",
+    "One or more quality or candidate checks crossed the configured review boundary, so HR remains withheld.": "一个或多个质量或候选检查越过既定复核边界，因此心率保持未发布。",
+    "One or more acquisition checks failed before a reportable candidate could be established.": "在形成可报告候选前，一个或多个采集检查未通过。",
+    "within target": "目标内",
+    "triggered": "已触发",
+    "unavailable": "不可用",
+    "This signal met the documented target and did not trigger corrective action.": "该信号已达到既定目标，未触发纠正操作。",
+    "This signal was unavailable, so no corrective action was inferred from it.": "该信号不可用，因此未据此推断纠正操作。",
+    "Candidate count": "候选数量",
+    "Keep the complete evidence packet and report version together with the released estimate.": "将完整证据包和报告版本与已发布估计一并保留。",
+    "Confirm that the result is used only within the documented research workflow.": "确认该结果仅用于已说明的研究流程。",
+    "Move the full face into the center of the frame and remove major occlusion.": "将完整人脸移至画面中央，并移除明显遮挡。",
+    "Face visibility did not reach the policy threshold.": "人脸可见性未达到策略阈值。",
+    "Confirm face visibility is at least 70% before rerunning the pipeline.": "重新运行前，确认人脸可见性至少达到 70%。",
+    "Use one even, front-facing light source and avoid backlight, deep shadow, or saturation.": "使用均匀的正面单一光源，避免逆光、深阴影或过曝。",
+    "Illumination did not reach the evidence threshold.": "光照未达到证据阈值。",
+    "Confirm the illumination score is at least 55% before interpretation.": "解释结果前，确认光照分数至少达到 55%。",
+    "Stabilize the device and ask the participant to remain still and avoid speaking.": "固定设备，并请受试者保持静止、避免说话。",
+    "Motion exceeded the policy limit and may contaminate regional traces.": "运动超过策略上限，可能污染区域信号。",
+    "Confirm the motion score is no greater than 35% on the repeat recording.": "确认重采视频的运动分数不高于 35%。",
+    "Record a longer, stable window with the full face visible so multiple routes can form candidates.": "在完整人脸可见的条件下录制更长且稳定的视频，使多个路径能够形成候选。",
+    "Too few candidate branches were retained for comparison.": "保留的候选分支过少，无法进行比较。",
+    "Confirm at least three candidates are retained before automatic reporting is considered.": "考虑自动发布前，确认至少保留三个候选。",
+    "Inspect the competing routes and repeat the recording under more stable conditions if disagreement persists.": "检查相互竞争的路径；若分歧持续，请在更稳定的条件下重采。",
+    "Cross-route agreement did not reach the release threshold.": "跨路径一致性未达到放行阈值。",
+    "Confirm candidate agreement reaches at least 60% before release.": "放行前，确认候选一致性至少达到 60%。",
+    "Compare the half-rate and double-rate branches; do not force either branch into release.": "比较半频与倍频分支，不得强制放行其中任何一个。",
+    "Harmonic ambiguity exceeded the configured review limit.": "谐波歧义超过既定复核上限。",
+    "Confirm harmonic risk is no greater than 35% or retain the case for review.": "确认谐波风险不高于 35%，否则继续保留复核。",
+    "Retain the candidate evidence for operator review or repeat the recording to improve support.": "保留候选证据供操作员复核，或重新采集以提高支持度。",
+    "Selector support did not reach the release threshold.": "选择器支持度未达到放行阈值。",
+    "Confirm selector support reaches at least 60% before release.": "放行前，确认选择器支持度至少达到 60%。",
+    "The released estimate stays linked to its quality, candidate, policy, and audit evidence.": "已发布估计将持续关联其质量、候选、策略和审计证据。",
+    "A corrected recording should either satisfy the documented thresholds or return a traceable review/retake state without publishing HR.": "修正后的录制应满足既定阈值，或返回可追溯的复核/重采状态且不发布心率。",
+    "If later evidence falls outside the thresholds, route the new window to review instead of carrying this release forward.": "若后续证据超出阈值，请将新窗口转入复核，不要沿用本次放行。",
+    "If the same trigger persists after one corrected recording, keep HR withheld and assign technical review.": "若完成一次纠正性重采后同一触发项仍存在，请继续隐藏心率并分派技术复核。",
+    "If acquisition remains below threshold after correction, do not force a result; inspect the camera, detector, and recording protocol.": "若纠正后采集仍低于阈值，不得强制输出；请检查相机、人脸检测器和录制流程。",
+    "Operational acquisition and research-review guidance only; it is not a clinical recommendation.": "仅提供采集与研究复核层面的操作指引，不构成临床建议。",
 }
 
 
@@ -485,6 +526,196 @@ def build_attribution(case: dict[str, Any]) -> dict[str, Any]:
         "primary_release_support": positive[:3],
         "all_factors": factors,
         "boundary": ATTRIBUTION_BOUNDARY,
+    }
+
+
+def build_action_plan(case: dict[str, Any]) -> dict[str, Any]:
+    """Map observed evidence to bounded, verifiable operational next steps."""
+
+    normalized = ensure_output_contract(case)
+    evidence: list[dict[str, Any]] = []
+    steps: list[dict[str, Any]] = []
+
+    def add_evidence(
+        signal: str,
+        source_field: str,
+        value: float | None,
+        *,
+        target: str,
+        within_target: bool | None,
+        display: str,
+        reason: str,
+        action: str,
+        verification: str,
+    ) -> None:
+        status = "unavailable" if within_target is None else ("within target" if within_target else "triggered")
+        evidence_reason = reason
+        if within_target is True:
+            evidence_reason = "This signal met the documented target and did not trigger corrective action."
+        elif within_target is None:
+            evidence_reason = "This signal was unavailable, so no corrective action was inferred from it."
+        evidence.append(
+            {
+                "signal": signal,
+                "source_field": source_field,
+                "observed": display,
+                "target": target,
+                "status": status,
+                "reason": evidence_reason,
+            }
+        )
+        if within_target is False:
+            steps.append(
+                {
+                    "step": len(steps) + 1,
+                    "action": action,
+                    "because": reason,
+                    "verification": verification,
+                    "source_field": source_field,
+                }
+            )
+
+    face = finite_float(normalized.get("face_coverage"))
+    add_evidence(
+        "Face visibility",
+        "face_coverage",
+        face,
+        target=">= 70%",
+        within_target=None if face is None else face >= 0.70,
+        display="NA" if face is None else f"{face:.0%}",
+        reason="Face visibility did not reach the policy threshold.",
+        action="Move the full face into the center of the frame and remove major occlusion.",
+        verification="Confirm face visibility is at least 70% before rerunning the pipeline.",
+    )
+    illumination = finite_float(normalized.get("illumination_score"))
+    add_evidence(
+        "Illumination",
+        "illumination_score",
+        illumination,
+        target=">= 55%",
+        within_target=None if illumination is None else illumination >= 0.55,
+        display="NA" if illumination is None else f"{illumination:.0%}",
+        reason="Illumination did not reach the evidence threshold.",
+        action="Use one even, front-facing light source and avoid backlight, deep shadow, or saturation.",
+        verification="Confirm the illumination score is at least 55% before interpretation.",
+    )
+    motion = finite_float(normalized.get("motion_score"))
+    add_evidence(
+        "Motion",
+        "motion_score",
+        motion,
+        target="<= 35%",
+        within_target=None if motion is None else motion <= 0.35,
+        display="NA" if motion is None else f"{motion:.0%}",
+        reason="Motion exceeded the policy limit and may contaminate regional traces.",
+        action="Stabilize the device and ask the participant to remain still and avoid speaking.",
+        verification="Confirm the motion score is no greater than 35% on the repeat recording.",
+    )
+    candidate_count = int(finite_float(normalized.get("candidate_count"), 0.0) or 0)
+    add_evidence(
+        "Candidate count",
+        "candidate_count",
+        float(candidate_count),
+        target=">= 3",
+        within_target=candidate_count >= 3,
+        display=str(candidate_count),
+        reason="Too few candidate branches were retained for comparison.",
+        action="Record a longer, stable window with the full face visible so multiple routes can form candidates.",
+        verification="Confirm at least three candidates are retained before automatic reporting is considered.",
+    )
+    if candidate_count > 0:
+        agreement = finite_float(normalized.get("agreement_fraction"))
+        add_evidence(
+            "Candidate agreement",
+            "agreement_fraction",
+            agreement,
+            target=">= 60%",
+            within_target=None if agreement is None else agreement >= 0.60,
+            display="NA" if agreement is None else f"{agreement:.0%}",
+            reason="Cross-route agreement did not reach the release threshold.",
+            action="Inspect the competing routes and repeat the recording under more stable conditions if disagreement persists.",
+            verification="Confirm candidate agreement reaches at least 60% before release.",
+        )
+        harmonic = finite_float(normalized.get("harmonic_risk"))
+        add_evidence(
+            "Harmonic ambiguity",
+            "harmonic_risk",
+            harmonic,
+            target="<= 35%",
+            within_target=None if harmonic is None else harmonic <= 0.35,
+            display="NA" if harmonic is None else f"{harmonic:.0%}",
+            reason="Harmonic ambiguity exceeded the configured review limit.",
+            action="Compare the half-rate and double-rate branches; do not force either branch into release.",
+            verification="Confirm harmonic risk is no greater than 35% or retain the case for review.",
+        )
+    if normalized.get("selected_candidate_hr_bpm") is not None:
+        confidence = finite_float(normalized.get("confidence"))
+        add_evidence(
+            "Selector support",
+            "confidence",
+            confidence,
+            target=">= 60%",
+            within_target=None if confidence is None else confidence >= 0.60,
+            display="NA" if confidence is None else f"{confidence:.0%}",
+            reason="Selector support did not reach the release threshold.",
+            action="Retain the candidate evidence for operator review or repeat the recording to improve support.",
+            verification="Confirm selector support reaches at least 60% before release.",
+        )
+
+    decision = normalized["decision"]
+    if decision == "release":
+        headline = "Release criteria passed; preserve the result with its evidence packet."
+        rationale = "Observed evidence met the configured release conditions. The estimate remains bounded to this evidence packet."
+        steps = [
+            {
+                "step": 1,
+                "action": "Keep the complete evidence packet and report version together with the released estimate.",
+                "because": "Observed evidence met the configured release conditions. The estimate remains bounded to this evidence packet.",
+                "verification": "The released estimate stays linked to its quality, candidate, policy, and audit evidence.",
+                "source_field": "decision",
+            },
+            {
+                "step": 2,
+                "action": "Confirm that the result is used only within the documented research workflow.",
+                "because": CLAIM_BOUNDARY,
+                "verification": "The released estimate stays linked to its quality, candidate, policy, and audit evidence.",
+                "source_field": "claim_boundary",
+            },
+        ]
+        expected_outcome = "The released estimate stays linked to its quality, candidate, policy, and audit evidence."
+        escalation = "If later evidence falls outside the thresholds, route the new window to review instead of carrying this release forward."
+    elif decision == "review":
+        headline = "Automatic reporting is withheld until the highlighted evidence is reviewed."
+        rationale = "One or more quality or candidate checks crossed the configured review boundary, so HR remains withheld."
+        expected_outcome = "A corrected recording should either satisfy the documented thresholds or return a traceable review/retake state without publishing HR."
+        escalation = "If the same trigger persists after one corrected recording, keep HR withheld and assign technical review."
+    else:
+        headline = "Acquisition criteria were not met; correct the highlighted input conditions and repeat."
+        rationale = "One or more acquisition checks failed before a reportable candidate could be established."
+        expected_outcome = "A corrected recording should either satisfy the documented thresholds or return a traceable review/retake state without publishing HR."
+        escalation = "If acquisition remains below threshold after correction, do not force a result; inspect the camera, detector, and recording protocol."
+
+    if decision != "release" and not steps:
+        steps.append(
+            {
+                "step": 1,
+                "action": str(normalized.get("recommended_action") or "Inspect the evidence packet before proceeding."),
+                "because": rationale,
+                "verification": expected_outcome,
+                "source_field": "recommended_action",
+            }
+        )
+
+    return {
+        "decision": decision,
+        "headline": headline,
+        "recommendation": normalized.get("recommended_action"),
+        "rationale": rationale,
+        "evidence": evidence,
+        "steps": steps,
+        "expected_outcome": expected_outcome,
+        "escalation": escalation,
+        "boundary": "Operational acquisition and research-review guidance only; it is not a clinical recommendation.",
     }
 
 
@@ -908,6 +1139,7 @@ def build_report_payload(
         "generated_at": utc_now(),
         "case": normalized,
         "attribution": build_attribution(normalized),
+        "action_plan": build_action_plan(normalized),
         "review": json_safe(review or {}),
         "audit_events": json_safe(list(audit_events or [])),
         "claim_boundary": CLAIM_BOUNDARY,
@@ -922,7 +1154,10 @@ def build_report_markdown(payload: dict[str, Any], *, language: str = "en") -> s
     labels = {
         "title": "VitalsSight 证据报告" if zh else "VitalsSight Evidence Report",
         "summary": "结果摘要" if zh else "Result summary",
+        "interpretation": "结果解释" if zh else "Operational interpretation",
         "quality": "采集质量" if zh else "Acquisition quality",
+        "action_evidence": "建议依据" if zh else "Evidence supporting the recommendation",
+        "workflow": "建议操作流程" if zh else "Recommended workflow",
         "attribution": "证据与策略归因" if zh else "Evidence and policy attribution",
         "candidates": "候选分支" if zh else "Candidate branches",
         "review": "复核记录" if zh else "Review record",
@@ -941,14 +1176,48 @@ def build_report_markdown(payload: dict[str, Any], *, language: str = "en") -> s
         f"- {'候选心率' if zh else 'Candidate HR'}: {_fmt_hr(case.get('selected_candidate_hr_bpm'))}",
         f"- {'建议操作' if zh else 'Recommended action'}: {text(case.get('recommended_action'))}",
         "",
+        f"## {labels['interpretation']}",
+        f"- {'当前结论' if zh else 'Current conclusion'}: {text(payload['action_plan']['headline'])}",
+        f"- {'形成原因' if zh else 'Why this state'}: {text(payload['action_plan']['rationale'])}",
+        f"- {'预期结果' if zh else 'Expected outcome'}: {text(payload['action_plan']['expected_outcome'])}",
+        "",
         f"## {labels['quality']}",
         f"- {'人脸覆盖' if zh else 'Face coverage'}: {_fmt_percent(case.get('face_coverage'))}",
         f"- {'光照分数' if zh else 'Illumination score'}: {_fmt_percent(case.get('illumination_score'))}",
         f"- {'运动分数' if zh else 'Motion score'}: {_fmt_percent(case.get('motion_score'))}",
         f"- {'质量分数' if zh else 'Quality score'}: {_fmt_percent(case.get('quality_score'))}",
         "",
-        f"## {labels['attribution']}",
+        f"## {labels['action_evidence']}",
+        f"| {'信号' if zh else 'Signal'} | {'观测值' if zh else 'Observed'} | {'目标' if zh else 'Target'} | {'状态' if zh else 'State'} | {'与建议的关系' if zh else 'Why it matters'} |",
+        "|---|---:|---:|---|---|",
     ]
+    for item in payload["action_plan"]["evidence"]:
+        lines.append(
+            f"| {text(item['signal'])} | {item['observed']} | {item['target']} | "
+            f"{text(item['status'])} | {text(item['reason'])} |"
+        )
+    lines.extend(
+        [
+            "",
+            f"## {labels['workflow']}",
+        ]
+    )
+    for item in payload["action_plan"]["steps"]:
+        lines.extend(
+            [
+                f"{item['step']}. {text(item['action'])}",
+                f"   - {'依据' if zh else 'Basis'}: {text(item['because'])}",
+                f"   - {'复核标准' if zh else 'Verify'}: {text(item['verification'])}",
+            ]
+        )
+    lines.extend(
+        [
+            f"- **{'仍未解决时' if zh else 'If unresolved'}:** {text(payload['action_plan']['escalation'])}",
+            f"- **{'使用边界' if zh else 'Guidance boundary'}:** {text(payload['action_plan']['boundary'])}",
+            "",
+        f"## {labels['attribution']}",
+        ]
+    )
     for factor in attribution["all_factors"]:
         lines.append(
             f"- {text(factor['factor'])}: {factor['observed']} | "
@@ -1011,6 +1280,7 @@ def build_report_pdf(payload: dict[str, Any], *, language: str = "en") -> bytes:
             font_name = "Helvetica"
 
     case = payload["case"]
+    action_plan = payload["action_plan"]
     buffer = BytesIO()
     document = SimpleDocTemplate(
         buffer,
@@ -1074,6 +1344,14 @@ def build_report_pdf(payload: dict[str, Any], *, language: str = "en") -> bytes:
     story.append(Paragraph("结果摘要" if zh else "Result summary", heading))
     story.append(_report_table(summary_data, body, colors))
 
+    interpretation_data = [
+        ["当前结论" if zh else "Current conclusion", text(action_plan["headline"])],
+        ["形成原因" if zh else "Why this state", text(action_plan["rationale"])],
+        ["预期结果" if zh else "Expected outcome", text(action_plan["expected_outcome"])],
+    ]
+    story.append(Paragraph("结果解释" if zh else "Operational interpretation", heading))
+    story.append(_report_table(interpretation_data, body, colors))
+
     quality_data = [
         ["人脸覆盖" if zh else "Face coverage", _fmt_percent(case.get("face_coverage"))],
         ["光照" if zh else "Illumination", _fmt_percent(case.get("illumination_score"))],
@@ -1083,6 +1361,35 @@ def build_report_pdf(payload: dict[str, Any], *, language: str = "en") -> bytes:
     ]
     story.append(Paragraph("采集质量" if zh else "Acquisition quality", heading))
     story.append(_report_table(quality_data, body, colors))
+
+    story.append(Paragraph("建议依据" if zh else "Evidence supporting the recommendation", heading))
+    action_evidence = [[
+        "信号" if zh else "Signal",
+        "观测值" if zh else "Observed",
+        "目标" if zh else "Target",
+        "状态" if zh else "State",
+        "与建议的关系" if zh else "Why it matters",
+    ]]
+    for item in action_plan["evidence"]:
+        action_evidence.append(
+            [
+                text(item["signal"]),
+                item["observed"],
+                item["target"],
+                text(item["status"]),
+                text(item["reason"]),
+            ]
+        )
+    story.append(_report_table(action_evidence, body, colors, header=True, widths=[31, 22, 22, 26, 73]))
+
+    story.append(Paragraph("建议操作流程" if zh else "Recommended workflow", heading))
+    for item in action_plan["steps"]:
+        story.append(Paragraph(f"<b>{item['step']}. {text(item['action'])}</b>", body))
+        story.append(Paragraph(f"{'依据' if zh else 'Basis'}: {text(item['because'])}", small))
+        story.append(Paragraph(f"{'复核标准' if zh else 'Verify'}: {text(item['verification'])}", small))
+        story.append(Spacer(1, 1.5 * mm))
+    story.append(Paragraph(f"<b>{'仍未解决时' if zh else 'If unresolved'}:</b> {text(action_plan['escalation'])}", body))
+    story.append(Paragraph(text(action_plan["boundary"]), small))
 
     story.append(Paragraph("证据与策略归因" if zh else "Evidence and policy attribution", heading))
     attr_data = [["因素" if zh else "Factor", "观测值" if zh else "Observed", "方向" if zh else "Direction", "理由" if zh else "Reason"]]
@@ -1141,30 +1448,44 @@ def build_report_pdf(payload: dict[str, Any], *, language: str = "en") -> bytes:
 
     review = payload.get("review", {})
     story.append(Paragraph("复核记录" if zh else "Review record", heading))
-    review_data = [
-        ["状态" if zh else "Status", text(review.get("status", "not opened"))],
-        ["优先级" if zh else "Priority", text(review.get("priority", ""))],
-        ["负责人" if zh else "Assignee", str(review.get("assignee", ""))],
-        ["处理结果" if zh else "Resolution", text(review.get("resolution", ""))],
-        ["复核备注" if zh else "Reviewer note", str(review.get("note", ""))],
+    review_data = [["状态" if zh else "Status", text(review.get("status", "not opened"))]]
+    review_fields = [
+        ("优先级" if zh else "Priority", "priority", True),
+        ("负责人" if zh else "Assignee", "assignee", False),
+        ("处理结果" if zh else "Resolution", "resolution", True),
+        ("复核备注" if zh else "Reviewer note", "note", False),
     ]
+    for label, key, localize in review_fields:
+        value = review.get(key, "")
+        if value not in (None, ""):
+            review_data.append([label, text(value) if localize else str(value)])
     story.append(_report_table(review_data, body, colors))
 
-    story.append(Paragraph("审计记录" if zh else "Audit trail", heading))
     events = payload.get("audit_events", [])
     if events:
+        story.append(Paragraph("审计记录" if zh else "Audit trail", heading))
         audit_data = [["时间" if zh else "Time", "事件" if zh else "Event", "操作人" if zh else "Actor"]]
         audit_data.extend(
             [str(event.get("created_at", "")), str(event.get("event_type", "")), str(event.get("actor", ""))]
             for event in events
         )
         story.append(_report_table(audit_data, body, colors, header=True, widths=[64, 60, 44]))
-    else:
-        story.append(Paragraph("暂无审计事件。" if zh else "No audit event is available.", body))
 
     story.append(Paragraph("证据边界" if zh else "Evidence boundary", heading))
     story.append(Paragraph(text(payload["claim_boundary"]), body))
-    document.build(story)
+
+    def draw_footer(canvas: Any, doc: Any) -> None:
+        canvas.saveState()
+        canvas.setStrokeColor(colors.HexColor("#D5E0E4"))
+        canvas.setLineWidth(0.4)
+        canvas.line(18 * mm, 11 * mm, A4[0] - 18 * mm, 11 * mm)
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(colors.HexColor("#667680"))
+        canvas.drawString(18 * mm, 6.5 * mm, "VitalsSight research evidence")
+        canvas.drawRightString(A4[0] - 18 * mm, 6.5 * mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    document.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
     return buffer.getvalue()
 
 

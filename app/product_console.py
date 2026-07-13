@@ -16,11 +16,13 @@ if str(PROJECT) not in sys.path:
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit.components.v1 import html as component_html
 
 from src.product.console_api import create_app
 from src.product.console_service import (
     ATTRIBUTION_BOUNDARY,
     CLAIM_BOUNDARY,
+    build_action_plan,
     build_attribution,
     build_report_markdown,
     build_report_payload,
@@ -100,6 +102,17 @@ def run() -> None:
         key="vs_section_radio",
     )
     st.session_state["vs_section"] = section
+    if st.session_state.get("vs_rendered_section") != section:
+        st.session_state["vs_rendered_section"] = section
+        _reset_main_scroll()
+    if st.sidebar.button(
+        _ui("Open guided workflow", "打开操作教学"),
+        icon=":material/menu_book:",
+        width="stretch",
+        key="vs_sidebar_guide",
+    ):
+        _set_flash(_ui("The role-based guide is open.", "已打开分角色操作教学。"), "info")
+        _go("Help & settings")
     st.sidebar.markdown("---")
     st.sidebar.caption(_ui("Research use only", "仅限研究使用"))
     st.sidebar.markdown(
@@ -109,8 +122,16 @@ def run() -> None:
 
     _header(section)
     flash = st.session_state.pop("vs_flash", "")
+    flash_kind = st.session_state.pop("vs_flash_kind", "success")
     if flash:
-        st.success(flash)
+        icon = {
+            "success": ":material/check_circle:",
+            "info": ":material/info:",
+            "warning": ":material/warning:",
+            "error": ":material/error:",
+        }.get(flash_kind, ":material/info:")
+        st.toast(flash, icon=icon)
+        getattr(st, flash_kind if flash_kind in {"success", "info", "warning", "error"} else "info")(flash)
     if section == "Overview":
         _overview(store)
     elif section == "New assessment":
@@ -139,6 +160,9 @@ def _init_state() -> None:
         "vs_preflight": None,
         "vs_upload_path": "",
         "vs_assessment_result": None,
+        "vs_flash": "",
+        "vs_flash_kind": "success",
+        "vs_rendered_section": "",
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -195,7 +219,7 @@ def _header(section: str) -> None:
         "Integrations": _ui("Validated payloads, OpenAPI schema, and report endpoints", "校验载荷、OpenAPI 规范和报告接口"),
         "Help & settings": _ui("Acquisition guidance, status definitions, privacy, and workspace settings", "采集指引、状态定义、隐私与工作区设置"),
     }[section]
-    left, right = st.columns([1, 0.32])
+    left, right = st.columns([1, 0.38])
     with left:
         st.markdown(f"<h1 class='vs-page-title'>{_escape(title)}</h1>", unsafe_allow_html=True)
         st.caption(subtitle)
@@ -204,6 +228,25 @@ def _header(section: str) -> None:
             "<div class='vs-env'><b>RESEARCH</b><span>candidate-aware HR</span></div>",
             unsafe_allow_html=True,
         )
+        with st.popover(
+            _ui("Quick guide", "快速指引"),
+            icon=":material/help_outline:",
+            width="stretch",
+        ):
+            st.markdown(
+                _ui(
+                    "**1. Prepare** the recording and consent.  \n**2. Assess** quality before HR.  \n**3. Act** on release, review, or retake.  \n**4. Export** the evidence report.",
+                    "**1. 准备**录制与授权。  \n**2. 评估**采集质量后再运行心率。  \n**3. 处理**放行、复核或重采。  \n**4. 导出**完整证据报告。",
+                )
+            )
+            if st.button(
+                _ui("Open full guide", "查看完整教学"),
+                icon=":material/arrow_forward:",
+                width="stretch",
+                key=f"vs_header_guide_{section}",
+            ):
+                _set_flash(_ui("The full workflow guide is open.", "已打开完整流程教学。"), "info")
+                _go("Help & settings")
     st.markdown("<div class='vs-rule'></div>", unsafe_allow_html=True)
 
 
@@ -214,6 +257,24 @@ def _overview(store: ConsoleStore) -> None:
     retakes = sum(case.get("decision") == "retake" for case in cases)
     open_reviews = sum(review.get("status") != "closed" for review in reviews)
     quality = [float(case.get("quality_score") or 0) for case in cases]
+
+    st.markdown(
+        f"<div class='vs-workflow-band'><div><span>{_escape(_ui('RECOMMENDED WORKFLOW', '推荐流程'))}</span>"
+        f"<b>{_escape(_ui('Capture once, qualify first, then release or route with evidence.', '一次采集，先做质量检查，再凭证据放行或转交处理。'))}</b></div>"
+        f"<ol><li>{_escape(_ui('Consent + input', '授权与输入'))}</li><li>{_escape(_ui('Quality gate', '质量门控'))}</li>"
+        f"<li>{_escape(_ui('Candidate decision', '候选决策'))}</li><li>{_escape(_ui('Review + report', '复核与报告'))}</li></ol></div>",
+        unsafe_allow_html=True,
+    )
+    quick_a, quick_b, quick_c = st.columns([1, 1, 1])
+    if quick_a.button(_ui("Start guided assessment", "开始引导式评估"), type="primary", icon=":material/add_circle:", width="stretch"):
+        _set_flash(_ui("Assessment opened. Start with purpose and consent.", "评估已打开，请先确认用途与授权。"), "info")
+        _start_assessment()
+    if quick_b.button(_ui("Continue review work", "继续复核工作"), icon=":material/fact_check:", width="stretch"):
+        _set_flash(_ui("Review queue opened. Select the highest-priority item first.", "已打开复核队列，请优先处理高优先级项目。"), "info")
+        _go("Review queue")
+    if quick_c.button(_ui("Learn the full workflow", "学习完整流程"), icon=":material/menu_book:", width="stretch"):
+        _set_flash(_ui("The role-based guide is open.", "已打开分角色操作教学。"), "info")
+        _go("Help & settings")
 
     columns = st.columns(5)
     _metric(columns[0], _ui("Cases", "案例"), str(len(cases)), _ui("stored evidence packets", "已存证据包"))
@@ -238,9 +299,11 @@ def _overview(store: ConsoleStore) -> None:
             )
         st.dataframe(pd.DataFrame(status_rows), hide_index=True, width="stretch", height=325)
         c1, c2 = st.columns(2)
-        if c1.button(_ui("Start new assessment", "开始新评估"), type="primary", width="stretch"):
+        if c1.button(_ui("Start new assessment", "开始新评估"), type="primary", icon=":material/add_circle:", width="stretch"):
+            _set_flash(_ui("Assessment opened. Start with purpose and consent.", "评估已打开，请先确认用途与授权。"), "info")
             _start_assessment()
-        if c2.button(_ui("Open review queue", "打开复核队列"), width="stretch"):
+        if c2.button(_ui("Open review queue", "打开复核队列"), icon=":material/fact_check:", width="stretch"):
+            _set_flash(_ui("Review queue opened.", "已打开复核队列。"), "info")
             _go("Review queue")
 
     with right:
@@ -272,6 +335,13 @@ def _overview(store: ConsoleStore) -> None:
 
 def _new_assessment(store: ConsoleStore) -> None:
     _step_strip()
+    st.markdown(
+        f"<div class='vs-io-strip'><div><span>{_escape(_ui('INPUT', '输入'))}</span>"
+        f"<b>{_escape(_ui('Consented adult RGB face video or a labeled workflow case', '已授权的成人 RGB 人脸视频或明确标注的流程样例'))}</b></div>"
+        f"<div><span>{_escape(_ui('OUTPUT', '输出'))}</span>"
+        f"<b>{_escape(_ui('Quality result, release/review/retake state, evidence and next action', '质量结果、放行/复核/重采状态、证据与下一步操作'))}</b></div></div>",
+        unsafe_allow_html=True,
+    )
     left, right = st.columns([1.1, 0.9], gap="large")
     with left:
         st.subheader(_ui("1. Purpose, consent, and retention", "1. 用途、授权与留存"))
@@ -333,43 +403,65 @@ def _new_assessment(store: ConsoleStore) -> None:
 
         action_col, reset_col = st.columns([1, 0.45])
         run_label = _ui("Run assessment", "运行评估")
-        if action_col.button(run_label, type="primary", disabled=not consent, width="stretch"):
-            try:
-                if source == "upload":
-                    if uploaded is None:
-                        st.warning(_ui("Upload a video first.", "请先上传视频。"))
-                    else:
+        if action_col.button(run_label, type="primary", icon=":material/play_arrow:", width="stretch"):
+            if not consent:
+                message = _ui(
+                    "Confirm processing consent before running the assessment.",
+                    "运行评估前，请先确认视频处理授权。",
+                )
+                st.warning(message)
+                st.toast(message, icon=":material/privacy_tip:")
+            elif source == "upload" and uploaded is None:
+                message = _ui("Upload a video before running the assessment.", "运行评估前，请先上传视频。")
+                st.warning(message)
+                st.toast(message, icon=":material/upload_file:")
+            else:
+                try:
+                    if source == "upload":
                         result = _process_upload(uploaded, purpose=purpose, retention=retention)
                         store.upsert_case(result, actor=st.session_state["vs_operator"])
                         st.session_state["vs_assessment_result"] = result
                         st.session_state["vs_focus_case"] = result["case_id"]
-                else:
-                    index = {"stable": 0, "conflict": 1, "low_light": 2}[source]
-                    result = make_demo_cases()[index]
-                    result["purpose"] = purpose
-                    result["retention_policy"] = retention
-                    result = ensure_output_contract(result)
-                    store.upsert_case(result, actor=st.session_state["vs_operator"])
-                    st.session_state["vs_assessment_result"] = result
-                    st.session_state["vs_preflight"] = case_quality_snapshot(result)
-                    st.session_state["vs_focus_case"] = result["case_id"]
-                st.success(_ui("Assessment completed and saved.", "评估已完成并保存。"))
-            except Exception as error:
-                st.error(
-                    _ui(
-                        "The assessment could not be completed. No HR was published.",
-                        "本次评估未能完成，系统未发布心率。",
+                    else:
+                        index = {"stable": 0, "conflict": 1, "low_light": 2}[source]
+                        result = make_demo_cases()[index]
+                        result["purpose"] = purpose
+                        result["retention_policy"] = retention
+                        result = ensure_output_contract(result)
+                        store.upsert_case(result, actor=st.session_state["vs_operator"])
+                        st.session_state["vs_assessment_result"] = result
+                        st.session_state["vs_preflight"] = case_quality_snapshot(result)
+                        st.session_state["vs_focus_case"] = result["case_id"]
+                    message = _ui(
+                        f"Assessment completed: {_decision_text(result['decision'])}. Follow the recommended next action.",
+                        f"评估完成：{_decision_text(result['decision'])}。请按照推荐的下一步操作处理。",
                     )
-                )
-                st.caption(
-                    f"{_ui('Technical detail', '技术信息')}: "
-                    f"{type(error).__name__}: {str(error)[:180]}"
-                )
-        if reset_col.button(_ui("Clear", "清除"), width="stretch"):
+                    st.success(message)
+                    st.toast(message, icon=":material/check_circle:")
+                except Exception as error:
+                    st.error(
+                        _ui(
+                            "The assessment could not be completed. No HR was published.",
+                            "本次评估未能完成，系统未发布心率。",
+                        )
+                    )
+                    st.caption(
+                        f"{_ui('Technical detail', '技术信息')}: "
+                        f"{type(error).__name__}: {str(error)[:180]}"
+                    )
+        if reset_col.button(_ui("Clear", "清除"), icon=":material/ink_eraser:", width="stretch"):
             _remove_session_upload()
             st.session_state["vs_assessment_result"] = None
             st.session_state["vs_preflight"] = None
+            _set_flash(_ui("Assessment input and session result were cleared.", "已清除评估输入和本次会话结果。"), "info")
             st.rerun()
+        if not consent:
+            st.caption(
+                _ui(
+                    "Required before run: confirm consent. The button remains active so it can explain what is missing.",
+                    "运行前必需：确认授权。按钮保持可点击，以便明确提示缺少的步骤。",
+                )
+            )
 
     with right:
         st.subheader(_ui("3. Quality qualification", "3. 质量检查"))
@@ -387,10 +479,13 @@ def _new_assessment(store: ConsoleStore) -> None:
         result = st.session_state.get("vs_assessment_result")
         if result:
             _result_summary(result)
+            _action_plan_panel(build_action_plan(result), compact=True)
             c1, c2 = st.columns(2)
-            if c1.button(_ui("Open case", "打开案例"), width="stretch"):
+            if c1.button(_ui("Open case", "打开案例"), icon=":material/folder_open:", width="stretch"):
+                _set_flash(_ui("Case evidence opened.", "已打开案例证据。"), "info")
                 _go("Cases")
-            if c2.button(_ui("Build report", "生成报告"), width="stretch"):
+            if c2.button(_ui("Build report", "生成报告"), icon=":material/description:", width="stretch"):
+                _set_flash(_ui("Evidence report prepared for review and export.", "证据报告已准备，可查看并导出。"), "success")
                 _go("Reports")
         else:
             st.caption(_ui("No result has been generated in this session.", "本次会话尚未生成结果。"))
@@ -498,8 +593,14 @@ def _case_detail(case: dict[str, Any], store: ConsoleStore) -> None:
         st.subheader(f"{case.get('display_id')} · {_decision_text(case.get('decision'))}")
         st.caption(f"{case.get('case_id')} | {_source_text(case.get('source_name'))} | {case.get('policy_version')}")
     with action:
-        if st.button(_ui("Open report", "打开报告"), width="stretch", key=f"report_{case['case_id']}"):
+        if st.button(
+            _ui("Open report", "打开报告"),
+            icon=":material/description:",
+            width="stretch",
+            key=f"report_{case['case_id']}",
+        ):
             st.session_state["vs_focus_case"] = case["case_id"]
+            _set_flash(_ui("Evidence report opened for this case.", "已打开该案例的证据报告。"), "info")
             _go("Reports")
 
     _result_summary(case)
@@ -524,6 +625,9 @@ def _case_detail(case: dict[str, Any], store: ConsoleStore) -> None:
                 unsafe_allow_html=True,
             )
         st.caption(_data_text(ATTRIBUTION_BOUNDARY))
+
+    st.subheader(_ui("Recommended next action", "推荐的下一步操作"))
+    _action_plan_panel(build_action_plan(case), compact=True)
 
     with st.expander(_ui("Audit trail", "审计记录"), expanded=False):
         events = store.audit_events(case["case_id"])
@@ -609,7 +713,12 @@ def _review_queue(store: ConsoleStore) -> None:
                 index=["", "request_retake", "retain_for_research_review", "close_without_release"].index(selected["resolution"]) if selected["resolution"] in ["", "request_retake", "retain_for_research_review", "close_without_release"] else 0,
                 format_func=lambda value: _ui("Not set", "未设置") if value == "" else _data_text(value),
             )
-            submitted = st.form_submit_button(_ui("Save review", "保存复核"), type="primary", width="stretch")
+            submitted = st.form_submit_button(
+                _ui("Save review", "保存复核"),
+                type="primary",
+                icon=":material/save:",
+                width="stretch",
+            )
         if submitted:
             store.update_review(
                 case["case_id"],
@@ -620,9 +729,12 @@ def _review_queue(store: ConsoleStore) -> None:
                 resolution=resolution,
                 actor=st.session_state["vs_operator"],
             )
-            st.session_state["vs_flash"] = _ui(
+            _set_flash(
+                _ui(
                 "Review record saved with an audit event.",
                 "复核记录已保存并写入审计事件。",
+                ),
+                "success",
             )
             st.rerun()
         st.subheader(_ui("Audit trail", "审计记录"))
@@ -631,6 +743,9 @@ def _review_queue(store: ConsoleStore) -> None:
 
 def _reports(store: ConsoleStore) -> None:
     cases = store.list_cases()
+    if not cases:
+        st.warning(_ui("No cases are available for reporting.", "当前没有可生成报告的案例。"))
+        return
     labels = [f"{case.get('display_id')} | {_decision_text(case.get('decision'))}" for case in cases]
     focus_id = st.session_state.get("vs_focus_case")
     default_index = next((i for i, case in enumerate(cases) if case.get("case_id") == focus_id), 0)
@@ -643,21 +758,74 @@ def _reports(store: ConsoleStore) -> None:
     markdown = build_report_markdown(payload, language=language)
     pdf = build_report_pdf(payload, language=language)
 
+    _report_preview(payload)
+    action_left, action_right = st.columns([1, 1])
+    if case.get("decision") == "release":
+        if action_left.button(
+            _ui("Open case evidence", "打开案例证据"),
+            icon=":material/folder_open:",
+            width="stretch",
+            key="report_open_case",
+        ):
+            _set_flash(_ui("Case evidence opened.", "已打开案例证据。"), "info")
+            _go("Cases")
+    else:
+        if action_left.button(
+            _ui("Open review workflow", "打开复核流程"),
+            icon=":material/fact_check:",
+            width="stretch",
+            key="report_open_review",
+        ):
+            _set_flash(_ui("Review workflow opened for the selected case.", "已打开所选案例的复核流程。"), "info")
+            _go("Review queue")
+    if action_right.button(
+        _ui("Start a corrected recording", "开始纠正性重采"),
+        icon=":material/videocam:",
+        width="stretch",
+        key="report_start_retake",
+    ):
+        _set_flash(_ui("Assessment opened. Apply the report recommendations before recording.", "评估已打开，请在录制前落实报告中的建议。"), "info")
+        _start_assessment()
+
+    st.subheader(_ui("Export evidence package", "导出证据包"))
+    st.caption(
+        _ui(
+            "PDF is the human-readable report; JSON preserves the full contract; Markdown supports review; CSV contains the case-level row.",
+            "PDF 用于人工阅读；JSON 保留完整数据契约；Markdown 便于复核；CSV 提供案例级数据行。",
+        )
+    )
     c1, c2, c3, c4 = st.columns(4)
-    c1.download_button("PDF", pdf, file_name=f"{case['display_id']}_evidence_report.pdf", mime="application/pdf", width="stretch")
-    c2.download_button("JSON", json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"), file_name=f"{case['display_id']}_evidence_report.json", mime="application/json", width="stretch")
-    c3.download_button("Markdown", markdown.encode("utf-8"), file_name=f"{case['display_id']}_evidence_report.md", mime="text/markdown", width="stretch")
+    c1.download_button(_ui("Report PDF", "报告 PDF"), pdf, file_name=f"{case['display_id']}_evidence_report.pdf", mime="application/pdf", icon=":material/picture_as_pdf:", width="stretch")
+    c2.download_button(_ui("Evidence JSON", "证据 JSON"), json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"), file_name=f"{case['display_id']}_evidence_report.json", mime="application/json", icon=":material/data_object:", width="stretch")
+    c3.download_button(_ui("Review Markdown", "复核 Markdown"), markdown.encode("utf-8"), file_name=f"{case['display_id']}_evidence_report.md", mime="text/markdown", icon=":material/article:", width="stretch")
     c4.download_button(
-        "CSV",
+        _ui("Case CSV", "案例 CSV"),
         pd.DataFrame([case]).drop(columns=[col for col in ["candidates", "trend_bpm", "preflight", "window_results"] if col in case]).to_csv(index=False).encode("utf-8-sig"),
         file_name=f"{case['display_id']}_case.csv",
         mime="text/csv",
+        icon=":material/table_view:",
         width="stretch",
     )
-    tabs = st.tabs([_ui("Preview", "预览"), _ui("Attribution", "归因"), _ui("Structured data", "结构化数据")])
+    tabs = st.tabs(
+        [
+            _ui("Report detail", "报告详情"),
+            _ui("Evidence to action", "证据到行动"),
+            _ui("Attribution", "归因"),
+            _ui("Review & audit", "复核与审计"),
+            _ui("Structured data", "结构化数据"),
+        ]
+    )
     with tabs[0]:
-        st.markdown(markdown)
+        st.subheader(_ui("Trend and retained candidates", "趋势与保留候选"))
+        _trend_chart(case)
+        candidates = case.get("candidates", [])
+        if candidates:
+            st.dataframe(pd.DataFrame(candidates), hide_index=True, width="stretch")
+        else:
+            st.info(_ui("No candidate branch was retained for this case.", "该案例未保留候选分支。"))
     with tabs[1]:
+        _action_plan_panel(payload["action_plan"], compact=False)
+    with tabs[2]:
         attribution = payload["attribution"]
         attribution_rows = [
             {
@@ -665,13 +833,90 @@ def _reports(store: ConsoleStore) -> None:
                 _ui("Observed", "观测值"): item.get("observed"),
                 _ui("Direction", "方向"): _data_text(item.get("status")),
                 _ui("Reason", "理由"): _data_text(item.get("reason")),
+                _ui("Source field", "来源字段"): item.get("source_field"),
             }
             for item in attribution["all_factors"]
         ]
         st.dataframe(pd.DataFrame(attribution_rows), hide_index=True, width="stretch")
         st.info(_data_text(attribution["boundary"]))
-    with tabs[2]:
+    with tabs[3]:
+        review = payload.get("review", {})
+        review_rows = [
+            [_ui("Status", "状态"), _data_text(review.get("status", "not opened"))],
+            [_ui("Priority", "优先级"), _data_text(review.get("priority", ""))],
+            [_ui("Assignee", "负责人"), review.get("assignee") or _ui("Unassigned", "未分派")],
+            [_ui("Resolution", "处理结果"), _data_text(review.get("resolution", ""))],
+            [_ui("Reviewer note", "复核备注"), review.get("note") or _ui("No note", "暂无备注")],
+        ]
+        st.dataframe(pd.DataFrame(review_rows, columns=[_ui("Field", "字段"), _ui("Value", "内容")]), hide_index=True, width="stretch")
+        events = payload.get("audit_events", [])
+        if events:
+            st.dataframe(pd.DataFrame(events), hide_index=True, width="stretch")
+        else:
+            st.info(_ui("No audit event is available.", "暂无审计事件。"))
+    with tabs[4]:
         st.json(payload, expanded=False)
+
+
+def _report_preview(payload: dict[str, Any]) -> None:
+    case = payload["case"]
+    plan = payload["action_plan"]
+    decision = str(case.get("decision"))
+    released = _released_hr(case)
+    st.markdown(
+        f"<div class='vs-report-sheet'><header><div><span>VITALSSIGHT / { _escape(payload['report_version']) }</span>"
+        f"<h2>{_escape(_ui('Evidence report', '证据报告'))}</h2>"
+        f"<p>{_escape(case.get('display_id'))} · {_escape(payload['generated_at'])}</p></div>"
+        f"<strong class='vs-status {decision}'>{_escape(_decision_text(decision))}</strong></header>"
+        f"<section class='vs-report-hero'><div><small>{_escape(_ui('Released HR', '已发布心率'))}</small><b>{_escape(released)}</b></div>"
+        f"<div><small>{_escape(_ui('Quality', '质量'))}</small><b>{_escape(_percent(case.get('quality_score')))}</b></div>"
+        f"<div><small>{_escape(_ui('Policy', '策略'))}</small><b>{_escape(case.get('policy_version'))}</b></div></section>"
+        f"<section class='vs-report-narrative'><span>{_escape(_ui('CURRENT INTERPRETATION', '当前解释'))}</span>"
+        f"<h3>{_escape(_data_text(plan['headline']))}</h3><p>{_escape(_data_text(plan['rationale']))}</p></section>"
+        f"<section class='vs-report-recommendation'><span>{_escape(_ui('RECOMMENDED NEXT ACTION', '推荐的下一步操作'))}</span>"
+        f"<b>{_escape(_data_text(plan['recommendation']))}</b><p>{_escape(_data_text(plan['expected_outcome']))}</p></section>"
+        f"<footer>{_escape(_data_text(plan['boundary']))}</footer></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _action_plan_panel(plan: dict[str, Any], *, compact: bool) -> None:
+    decision = str(plan.get("decision", "review"))
+    st.markdown(
+        f"<div class='vs-action-head {decision}'><span>{_escape(_ui('WHY THIS ACTION', '为什么这样处理'))}</span>"
+        f"<b>{_escape(_data_text(plan.get('headline')))}</b><p>{_escape(_data_text(plan.get('rationale')))}</p></div>",
+        unsafe_allow_html=True,
+    )
+    evidence = plan.get("evidence", [])
+    if compact:
+        evidence = [item for item in evidence if item.get("status") == "triggered"][:3]
+    if evidence:
+        rows = [
+            {
+                _ui("Signal", "信号"): _data_text(item.get("signal")),
+                _ui("Observed", "观测值"): item.get("observed"),
+                _ui("Target", "目标"): item.get("target"),
+                _ui("State", "状态"): _data_text(item.get("status")),
+                _ui("Reason", "原因"): _data_text(item.get("reason")),
+            }
+            for item in evidence
+        ]
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    steps = plan.get("steps", [])[:3] if compact else plan.get("steps", [])
+    for item in steps:
+        st.markdown(
+            f"<div class='vs-action-step'><b>{item.get('step')}</b><div><strong>{_escape(_data_text(item.get('action')))}</strong>"
+            f"<span>{_escape(_ui('Basis', '依据'))}: {_escape(_data_text(item.get('because')))}</span>"
+            f"<small>{_escape(_ui('Verify', '复核标准'))}: {_escape(_data_text(item.get('verification')))}</small></div></div>",
+            unsafe_allow_html=True,
+        )
+    if not compact:
+        st.markdown(
+            f"<div class='vs-escalation'><b>{_escape(_ui('If the issue persists', '问题仍存在时'))}</b>"
+            f"<span>{_escape(_data_text(plan.get('escalation')))}</span></div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(_data_text(plan.get("boundary")))
 
 
 def _evidence() -> None:
@@ -690,15 +935,23 @@ def _evidence() -> None:
         go.Bar(
             x=chart_data["protocol_key"],
             y=chart_data["mae_numeric"],
-            marker_color="#5E8792",
+            marker_color="#5D8196",
             text=chart_data["mae_bpm"],
             textposition="outside",
             hovertext=chart_data["interpretation"],
         )
     )
-    fig.update_layout(height=360, margin=dict(l=30, r=20, t=20, b=100), yaxis_title="MAE (BPM)", showlegend=False)
+    fig.update_layout(
+        height=360,
+        margin=dict(l=30, r=20, t=24, b=100),
+        yaxis_title="MAE (BPM)",
+        showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="#FFFFFF",
+        font=dict(color="#526773", family="Segoe UI, sans-serif", size=12),
+    )
     fig.update_xaxes(tickangle=-28)
-    fig.update_yaxes(gridcolor="#E3E9EB", zeroline=False)
+    fig.update_yaxes(gridcolor="#E7EDF0", zeroline=False)
     st.plotly_chart(fig, width="stretch")
 
     st.subheader(_ui("Protocol invariants", "协议不变量"))
@@ -721,9 +974,11 @@ def _integrations(store: ConsoleStore) -> None:
             st.json(payload, expanded=False)
         except ValueError as error:
             st.error(str(error))
-        if st.button(_ui("Write integration audit event", "写入集成审计事件"), width="stretch"):
+        if st.button(_ui("Write integration audit event", "写入集成审计事件"), icon=":material/history:", width="stretch"):
             store.log_event(selected["case_id"], "integration.payload_validated", actor=st.session_state["vs_operator"], details={"schema_version": selected.get("schema_version")})
-            st.success(_ui("Audit event recorded.", "审计事件已记录。"))
+            message = _ui("Audit event recorded for this payload.", "已为该载荷写入审计事件。")
+            st.success(message)
+            st.toast(message, icon=":material/check_circle:")
 
     with right:
         st.subheader(_ui("REST API", "REST 接口"))
@@ -747,6 +1002,7 @@ def _integrations(store: ConsoleStore) -> None:
             json.dumps(openapi, ensure_ascii=False, indent=2).encode("utf-8"),
             file_name="vitalssight_openapi.json",
             mime="application/json",
+            icon=":material/download:",
             width="stretch",
         )
         st.code("uvicorn app.api_server:app --host 127.0.0.1 --port 8010", language="bash")
@@ -754,6 +1010,63 @@ def _integrations(store: ConsoleStore) -> None:
 
 
 def _help_settings(store: ConsoleStore) -> None:
+    st.markdown(
+        f"<div class='vs-guide-intro'><span>{_escape(_ui('GUIDED WORKFLOW', '引导式工作流'))}</span>"
+        f"<h2>{_escape(_ui('Choose your role and follow one complete path', '选择你的角色，按照一条完整路径操作'))}</h2>"
+        f"<p>{_escape(_ui('Each step states the required input, the action to take, the output to expect, and where to go next.', '每一步都说明所需输入、执行操作、预期输出以及下一步去向。'))}</p></div>",
+        unsafe_allow_html=True,
+    )
+    guide_tabs = st.tabs(
+        [
+            _ui("Capture operator", "采集操作员"),
+            _ui("Evidence reviewer", "证据复核员"),
+            _ui("Report & integration", "报告与集成"),
+        ]
+    )
+    with guide_tabs[0]:
+        _guide_rows(
+            [
+                (_ui("Set purpose and consent", "设置用途与授权"), _ui("Research purpose, consent confirmation, retention choice", "研究用途、授权确认、留存方式"), _ui("Choose the purpose, confirm consent, then select raw-video handling.", "选择用途、确认授权，再选择原始视频处理方式。"), _ui("A documented processing contract", "已记录的数据处理契约"), _ui("Choose an input source", "选择输入来源")),
+                (_ui("Prepare the recording", "准备录制"), _ui("Adult RGB face video or a labeled demo case", "成人 RGB 人脸视频或明确标注的演示案例"), _ui("Use even front light, center the full face, remain still, and record 20-30 seconds.", "使用均匀正面光、完整人脸居中、保持静止并录制 20-30 秒。"), _ui("A usable video window", "可用的视频窗口"), _ui("Run assessment", "运行评估")),
+                (_ui("Run quality qualification", "运行质量检查"), _ui("Consented input", "已授权输入"), _ui("Click Run assessment; the system checks duration, fps, resolution, light, motion, and face visibility.", "点击运行评估；系统检查时长、帧率、分辨率、光照、运动和人脸可见性。"), _ui("Pass, warning, or retake guidance", "通过、警告或重采指引"), _ui("Read the output state", "查看输出状态")),
+                (_ui("Interpret the state", "解释状态"), _ui("Quality and candidate evidence", "质量与候选证据"), _ui("Release shows HR; review and retake always withhold HR and show the trigger.", "放行会显示心率；复核和重采始终隐藏心率并显示触发原因。"), _ui("A traceable release, review, or retake result", "可追溯的放行、复核或重采结果"), _ui("Follow the recommended action", "执行推荐操作")),
+                (_ui("Correct or route", "纠正或转交"), _ui("Triggered signal, observed value, and target threshold", "触发信号、观测值与目标阈值"), _ui("Correct capture problems or route unresolved candidate evidence to review.", "纠正采集问题，或将未消解的候选证据转入复核。"), _ui("A corrected recording or assigned review", "纠正后的录制或已分派复核"), _ui("Build the report", "生成报告")),
+                (_ui("Export the evidence package", "导出证据包"), _ui("Completed case and optional review record", "已完成案例及可选复核记录"), _ui("Open Reports and export PDF, JSON, Markdown, or CSV for the intended audience.", "打开报告中心，并按受众导出 PDF、JSON、Markdown 或 CSV。"), _ui("Versioned report with action rationale and audit trail", "带行动依据和审计轨迹的版本化报告"), _ui("Retain or integrate", "保留或集成")),
+            ]
+        )
+        if st.button(_ui("Start this workflow", "开始该流程"), type="primary", icon=":material/play_arrow:", width="stretch", key="guide_start_assessment"):
+            _set_flash(_ui("Guided assessment opened at purpose and consent.", "引导式评估已从用途与授权步骤打开。"), "info")
+            _start_assessment()
+    with guide_tabs[1]:
+        _guide_rows(
+            [
+                (_ui("Prioritize work", "确定优先级"), _ui("Open review queue", "未关闭的复核队列"), _ui("Filter by status and priority, then select the highest-priority unresolved item.", "按状态与优先级筛选，再选择最高优先级的未解决项目。"), _ui("One selected review case", "一个已选择的复核案例"), _ui("Inspect evidence", "检查证据")),
+                (_ui("Inspect why HR was withheld", "检查心率为何未发布"), _ui("Reason, candidates, thresholds, and attribution", "原因、候选、阈值与归因"), _ui("Compare the observed values with policy targets; never infer from candidate HR alone.", "将观测值与策略目标比较，不得仅凭候选心率下结论。"), _ui("A documented evidence assessment", "已记录的证据评估"), _ui("Choose an action", "选择处理操作")),
+                (_ui("Document the decision", "记录处理决定"), _ui("Status, priority, assignee, note, resolution", "状态、优先级、负责人、备注、处理结果"), _ui("Complete every field that applies and save the review.", "填写所有适用字段并保存复核。"), _ui("Timestamped review and audit event", "带时间戳的复核与审计事件"), _ui("Verify the report", "核对报告")),
+                (_ui("Close the loop", "闭环处理"), _ui("Saved review and corrected capture if requested", "已保存复核及按需完成的纠正性重采"), _ui("Confirm the report includes the reason, recommendation, evidence basis, and escalation path.", "确认报告包含原因、建议、证据依据和升级路径。"), _ui("An auditable closed or waiting-retake state", "可审计的已关闭或等待重采状态"), _ui("Export or continue monitoring", "导出或继续观察")),
+            ]
+        )
+        if st.button(_ui("Open review queue", "打开复核队列"), type="primary", icon=":material/fact_check:", width="stretch", key="guide_open_review"):
+            _set_flash(_ui("Review queue opened. Start with priority and status.", "已打开复核队列，请先查看优先级和状态。"), "info")
+            _go("Review queue")
+    with guide_tabs[2]:
+        _guide_rows(
+            [
+                (_ui("Select the audience", "确定报告受众"), _ui("Completed case", "已完成案例"), _ui("Use PDF for people, JSON for systems, Markdown for review, and CSV for case-level analysis.", "PDF 面向人工阅读，JSON 面向系统，Markdown 面向复核，CSV 面向案例级分析。"), _ui("Correct export format", "正确的导出格式"), _ui("Review content", "检查内容")),
+                (_ui("Verify the evidence chain", "核对证据链"), _ui("Interpretation, thresholds, actions, attribution, and audit", "解释、阈值、操作、归因与审计"), _ui("Confirm every recommendation names its source signal, observed value, target, and verification condition.", "确认每条建议都标明来源信号、观测值、目标和复核条件。"), _ui("A self-explanatory report", "可自解释的报告"), _ui("Export or integrate", "导出或集成")),
+                (_ui("Validate the API contract", "验证 API 契约"), _ui("Case payload or OpenAPI schema", "案例载荷或 OpenAPI 规范"), _ui("Validate that non-release states contain no released HR, then write an audit event.", "验证非放行状态不包含已发布心率，再写入审计事件。"), _ui("Validated payload and audit record", "已校验载荷与审计记录"), _ui("Connect downstream", "连接下游系统")),
+                (_ui("Preserve boundaries", "保留使用边界"), _ui("Report version, model/policy versions, claim boundary", "报告版本、模型/策略版本和证据边界"), _ui("Keep the boundary and versions with every exported or integrated result.", "每次导出或集成时都保留边界和版本信息。"), _ui("Traceable research output", "可追溯的研究输出"), _ui("Archive or continue review", "归档或继续复核")),
+            ]
+        )
+        c1, c2 = st.columns(2)
+        if c1.button(_ui("Open reports", "打开报告中心"), type="primary", icon=":material/description:", width="stretch", key="guide_open_reports"):
+            _set_flash(_ui("Report center opened. Select a case and review the interpretation first.", "已打开报告中心，请先选择案例并查看结果解释。"), "info")
+            _go("Reports")
+        if c2.button(_ui("Open integrations", "打开系统集成"), icon=":material/api:", width="stretch", key="guide_open_integrations"):
+            _set_flash(_ui("Integration workspace opened.", "已打开系统集成工作区。"), "info")
+            _go("Integrations")
+
+    st.markdown("<div class='vs-section-rule'></div>", unsafe_allow_html=True)
     left, right = st.columns([1, 0.8], gap="large")
     with left:
         st.subheader(_ui("Capture checklist", "采集检查清单"))
@@ -781,9 +1094,11 @@ def _help_settings(store: ConsoleStore) -> None:
     with right:
         st.subheader(_ui("Workspace settings", "工作区设置"))
         operator = st.text_input(_ui("Operator name", "操作员名称"), value=st.session_state["vs_operator"])
-        if st.button(_ui("Save operator", "保存操作员"), type="primary", width="stretch"):
+        if st.button(_ui("Save operator", "保存操作员"), type="primary", icon=":material/person_check:", width="stretch"):
             st.session_state["vs_operator"] = operator.strip() or "Research operator"
-            st.success(_ui("Operator saved for audit events.", "操作员已用于后续审计事件。"))
+            message = _ui("Operator saved for future audit events.", "操作员已保存，将用于后续审计事件。")
+            st.success(message)
+            st.toast(message, icon=":material/check_circle:")
         st.markdown("---")
         st.subheader(_ui("Data handling", "数据处理"))
         st.markdown(
@@ -792,10 +1107,32 @@ def _help_settings(store: ConsoleStore) -> None:
                 "上传的原始视频在本地处理。推荐模式会在分析后删除视频，仅保留派生证据、决策和审计记录。",
             )
         )
-        if st.button(_ui("Restore built-in demo cases", "恢复内置演示案例"), width="stretch"):
+        if st.button(_ui("Restore built-in demo cases", "恢复内置演示案例"), icon=":material/refresh:", width="stretch"):
             for case in make_demo_cases():
                 store.upsert_case(case, actor=st.session_state["vs_operator"])
-            st.success(_ui("Built-in cases restored without deleting user cases.", "已恢复内置案例，未删除用户案例。"))
+            message = _ui("Built-in cases restored without deleting user cases.", "已恢复内置案例，未删除用户案例。")
+            st.success(message)
+            st.toast(message, icon=":material/check_circle:")
+
+        with st.expander(_ui("What should I do if a click appears to do nothing?", "如果点击后看起来没有反应怎么办？")):
+            st.markdown(
+                _ui(
+                    "Every command now either navigates, downloads a file, or shows a success/warning message. If no message appears, refresh once and check the browser console before repeating the action.",
+                    "现在每个命令都会跳转、下载文件或显示成功/警告信息。如果没有出现任何信息，请先刷新一次并检查浏览器控制台，再重复操作。",
+                )
+            )
+
+
+def _guide_rows(rows: list[tuple[str, str, str, str, str]]) -> None:
+    for index, (title, input_text, action, output, next_step) in enumerate(rows, 1):
+        st.markdown(
+            f"<div class='vs-guide-row'><b>{index}</b><div><h3>{_escape(title)}</h3>"
+            f"<dl><dt>{_escape(_ui('Input', '输入'))}</dt><dd>{_escape(input_text)}</dd>"
+            f"<dt>{_escape(_ui('Action', '操作'))}</dt><dd>{_escape(action)}</dd>"
+            f"<dt>{_escape(_ui('Output', '输出'))}</dt><dd>{_escape(output)}</dd>"
+            f"<dt>{_escape(_ui('Next', '下一步'))}</dt><dd>{_escape(next_step)}</dd></dl></div></div>",
+            unsafe_allow_html=True,
+        )
 
 
 def _result_summary(case: dict[str, Any]) -> None:
@@ -872,8 +1209,16 @@ def _quality_chart(cases: list[dict[str, Any]]) -> None:
             textposition="outside",
         )
     )
-    fig.update_layout(height=330, margin=dict(l=20, r=15, t=10, b=45), yaxis=dict(range=[0, 1.08], tickformat=".0%"), showlegend=False)
-    fig.update_yaxes(gridcolor="#E4EAEC", zeroline=False)
+    fig.update_layout(
+        height=330,
+        margin=dict(l=20, r=15, t=18, b=45),
+        yaxis=dict(range=[0, 1.08], tickformat=".0%"),
+        showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="#FFFFFF",
+        font=dict(color="#526773", family="Segoe UI, sans-serif", size=12),
+    )
+    fig.update_yaxes(gridcolor="#E7EDF0", zeroline=False)
     st.plotly_chart(fig, width="stretch")
 
 
@@ -889,7 +1234,13 @@ def _decision_chart(cases: list[dict[str, Any]]) -> None:
             textinfo="label+value",
         )
     )
-    fig.update_layout(height=330, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+    fig.update_layout(
+        height=330,
+        margin=dict(l=10, r=10, t=10, b=10),
+        showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#526773", family="Segoe UI, sans-serif", size=12),
+    )
     st.plotly_chart(fig, width="stretch")
 
 
@@ -903,12 +1254,21 @@ def _trend_chart(case: dict[str, Any]) -> None:
             x=list(range(1, len(values) + 1)),
             y=values,
             mode="lines+markers",
-            line=dict(color="#5E8792", width=2.3),
-            marker=dict(size=7, color="#5E8792"),
+            line=dict(color="#4F7E95", width=2.4),
+            marker=dict(size=7, color="#4F7E95", line=dict(color="#FFFFFF", width=1.2)),
         )
     )
-    fig.update_layout(height=270, margin=dict(l=25, r=15, t=10, b=35), xaxis_title=_ui("Window", "窗口"), yaxis_title="HR (BPM)", showlegend=False)
-    fig.update_yaxes(gridcolor="#E4EAEC", zeroline=False)
+    fig.update_layout(
+        height=270,
+        margin=dict(l=25, r=15, t=14, b=35),
+        xaxis_title=_ui("Window", "窗口"),
+        yaxis_title="HR (BPM)",
+        showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="#FFFFFF",
+        font=dict(color="#526773", family="Segoe UI, sans-serif", size=12),
+    )
+    fig.update_yaxes(gridcolor="#E7EDF0", zeroline=False)
     st.plotly_chart(fig, width="stretch")
 
 
@@ -922,7 +1282,7 @@ def _decision_text(decision: str) -> str:
 
 
 def _decision_color(decision: str) -> str:
-    return {"release": "#6B9B91", "review": "#B69A67", "retake": "#C8837A"}.get(decision, "#82919A")
+    return {"release": "#5F8F8C", "review": "#7B84A6", "retake": "#B77D82"}.get(decision, "#7D8E98")
 
 
 def _next_step_text(case: dict[str, Any]) -> str:
@@ -951,6 +1311,43 @@ def _go(section: str) -> None:
         raise ValueError(f"Unknown console section: {section}")
     st.session_state["vs_pending_section"] = section
     st.rerun()
+
+
+def _reset_main_scroll() -> None:
+    """Start each workspace view at its first instruction after navigation."""
+    component_html(
+        """
+        <script>
+        const resetMainScroll = () => {
+            const main = window.parent.document.querySelector('[data-testid="stMain"]');
+            if (main) main.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+        };
+        const closeMobileSidebar = () => {
+            if (window.parent.innerWidth > 900) return;
+            const sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
+            if (!sidebar || sidebar.getAttribute('aria-expanded') !== 'true') return;
+            const collapse = sidebar.querySelector('[data-testid="stSidebarCollapseButton"] button');
+            if (collapse) collapse.click();
+        };
+        resetMainScroll();
+        window.requestAnimationFrame(resetMainScroll);
+        let attempts = 0;
+        const timer = window.setInterval(() => {
+            resetMainScroll();
+            closeMobileSidebar();
+            attempts += 1;
+            if (attempts >= 12) window.clearInterval(timer);
+        }, 100);
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+def _set_flash(message: str, kind: str = "success") -> None:
+    st.session_state["vs_flash"] = message
+    st.session_state["vs_flash_kind"] = kind if kind in {"success", "info", "warning", "error"} else "info"
 
 
 def _start_assessment() -> None:
@@ -990,98 +1387,201 @@ def _inject_css() -> None:
         """
         <style>
         :root {
-            --ink: #23333d;
-            --muted: #687780;
-            --line: #d9e2e5;
+            --ink: #1b2f3a;
+            --ink-soft: #39505c;
+            --muted: #687b86;
+            --line: #d9e3e8;
+            --line-strong: #bdcdd5;
             --paper: #ffffff;
-            --canvas: #f4f7f8;
-            --blue: #5e8792;
-            --blue-soft: #eaf1f3;
-            --teal: #6b9b91;
-            --teal-soft: #edf5f2;
-            --amber: #b69a67;
-            --amber-soft: #f6f1e8;
-            --coral: #c8837a;
-            --coral-soft: #f8eeeb;
+            --canvas: #f3f7f9;
+            --sidebar: #f8fafb;
+            --primary: #47788d;
+            --primary-dark: #365f72;
+            --primary-soft: #e7f0f4;
+            --steel: #6f8fa6;
+            --steel-soft: #edf2f6;
+            --teal: #5f8f8c;
+            --teal-soft: #eaf4f3;
+            --violet: #7b84a6;
+            --violet-soft: #f0f1f7;
+            --rose: #b77d82;
+            --rose-soft: #f7eeee;
+            --shadow: 0 8px 28px rgba(34, 63, 76, 0.06);
         }
+        html, body, [class*="css"] { font-family: "Inter", "Segoe UI", "Microsoft YaHei", sans-serif; }
         .stApp { background: var(--canvas); color: var(--ink); }
-        [data-testid="stToolbar"] { display: none; }
-        .block-container { padding-top: 3rem; padding-bottom: 3rem; max-width: 1480px; }
-        section[data-testid="stSidebar"] { background: #eef3f4; border-right: 1px solid var(--line); }
+        header[data-testid="stHeader"] { background: rgba(243, 247, 249, 0.94); border-bottom: 1px solid rgba(217, 227, 232, 0.72); }
+        [data-testid="stToolbar"] { display: flex !important; }
+        [data-testid="stAppDeployButton"], [data-testid="stMainMenu"] { display: none !important; }
+        [data-testid="stSidebarCollapseButton"], [data-testid="stSidebarCollapseButton"] button,
+        [data-testid="stExpandSidebarButton"] {
+            visibility: visible !important; opacity: 1 !important;
+        }
+        [data-testid="stSidebarCollapsedControl"], [data-testid="stExpandSidebarButton"] {
+            display: flex !important; visibility: visible !important; opacity: 1 !important;
+            position: fixed !important; top: 0.72rem !important; left: 0.72rem !important; z-index: 100001 !important;
+        }
+        [data-testid="stSidebarCollapsedControl"] button,
+        [data-testid="stSidebarCollapseButton"] button,
+        [data-testid="stExpandSidebarButton"] {
+            background: #ffffff !important; border: 1px solid var(--line-strong) !important;
+            border-radius: 7px !important; box-shadow: 0 3px 12px rgba(36, 66, 79, 0.10) !important;
+            color: var(--primary-dark) !important; min-width: 36px !important; min-height: 36px !important;
+        }
+        .block-container { padding-top: 4rem; padding-bottom: 4rem; max-width: 1460px; }
+        section[data-testid="stSidebar"] { background: var(--sidebar); border-right: 1px solid var(--line); }
+        section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] { padding-top: 0.2rem; }
         section[data-testid="stSidebar"] .stRadio > div { gap: 0.18rem; }
         section[data-testid="stSidebar"] .stRadio label {
-            padding: 0.55rem 0.65rem; border-radius: 5px; color: var(--ink);
+            padding: 0.58rem 0.72rem; border-radius: 6px; color: var(--ink-soft); border-left: 3px solid transparent;
+            transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
         }
-        section[data-testid="stSidebar"] .stRadio label:has(input:checked) { background: #dfe9ec; font-weight: 700; }
-        .vs-brand { display: flex; align-items: center; gap: 0.65rem; margin: 1rem 0 0.1rem; font-size: 1.05rem; }
-        .vs-brand span { width: 30px; height: 30px; display: inline-grid; place-items: center; background: #456f7a; color: white; border-radius: 5px; font-weight: 800; }
-        .vs-boundary-small { font-size: 0.76rem; line-height: 1.4; color: #6d7c84; padding: 0.55rem 0; }
-        .vs-page-title { font-size: 1.75rem !important; line-height: 1.15; margin: 0 !important; color: var(--ink); letter-spacing: 0; }
-        .vs-env { margin-top: 0.45rem; border: 1px solid var(--line); background: var(--paper); padding: 0.55rem 0.75rem; border-radius: 5px; display: flex; justify-content: space-between; gap: 1rem; color: var(--muted); font-size: 0.78rem; }
-        .vs-env b { color: var(--blue); letter-spacing: 0.04em; }
-        .vs-rule { border-top: 1px solid var(--line); margin: 0.65rem 0 1rem; }
-        .vs-section-rule { border-top: 1px solid var(--line); margin: 1.1rem 0; }
+        section[data-testid="stSidebar"] .stRadio label:hover { background: #edf3f6; color: var(--ink); }
+        section[data-testid="stSidebar"] .stRadio label:has(input:checked) {
+            background: var(--primary-soft); color: var(--primary-dark); border-left-color: var(--primary); font-weight: 700;
+        }
+        .vs-brand { display: flex; align-items: center; gap: 0.72rem; margin: 0.9rem 0 0.08rem; font-size: 1.08rem; color: var(--ink); }
+        .vs-brand span { width: 34px; height: 34px; display: inline-grid; place-items: center; background: var(--primary); color: white; border-radius: 7px; font-weight: 800; box-shadow: 0 5px 14px rgba(71,120,141,0.20); }
+        .vs-boundary-small { font-size: 0.76rem; line-height: 1.5; color: var(--muted); padding: 0.55rem 0; }
+        .vs-page-title { font-size: 1.85rem !important; line-height: 1.15; margin: 0 !important; color: var(--ink); letter-spacing: 0; }
+        .vs-env { margin-top: 0.2rem; border: 1px solid var(--line); background: var(--paper); padding: 0.54rem 0.72rem; border-radius: 7px; display: flex; justify-content: space-between; gap: 1rem; color: var(--muted); font-size: 0.76rem; box-shadow: 0 3px 12px rgba(34,63,76,0.04); }
+        .vs-env b { color: var(--primary); letter-spacing: 0; }
+        .vs-rule { border-top: 1px solid var(--line); margin: 0.8rem 0 1.15rem; }
+        .vs-section-rule { border-top: 1px solid var(--line); margin: 1.5rem 0; }
         h1, h2, h3 { letter-spacing: 0; color: var(--ink); }
-        h2 { font-size: 1.12rem !important; }
+        h2 { font-size: 1.18rem !important; }
         h3 { font-size: 1rem !important; }
-        .vs-metric { background: var(--paper); border: 1px solid var(--line); border-top: 3px solid #8a9aa2; border-radius: 6px; padding: 0.8rem 0.9rem; min-height: 112px; }
+        p, li { color: var(--ink-soft); }
+        .vs-workflow-band { display:grid; grid-template-columns:minmax(260px,0.85fr) minmax(420px,1.15fr); gap:1.5rem; align-items:center; background:#ffffff; border:1px solid var(--line); border-left:5px solid var(--primary); border-radius:8px; padding:1rem 1.15rem; margin:0.1rem 0 0.75rem; box-shadow:var(--shadow); }
+        .vs-workflow-band span, .vs-io-strip span, .vs-guide-intro > span, .vs-report-narrative > span, .vs-report-recommendation > span, .vs-action-head > span { display:block; color:var(--primary); font-size:0.67rem; font-weight:800; letter-spacing:0; }
+        .vs-workflow-band b { display:block; margin-top:0.28rem; font-size:0.94rem; line-height:1.45; color:var(--ink); }
+        .vs-workflow-band ol { margin:0; padding:0; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); list-style:none; counter-reset:flow; }
+        .vs-workflow-band li { counter-increment:flow; padding:0.42rem 0.7rem; border-left:1px solid var(--line); font-size:0.78rem; color:var(--ink-soft); }
+        .vs-workflow-band li::before { content:counter(flow); display:block; color:var(--primary); font-weight:800; margin-bottom:0.12rem; }
+        .vs-io-strip { display:grid; grid-template-columns:1fr 1fr; gap:1px; border:1px solid var(--line); background:var(--line); border-radius:7px; overflow:hidden; margin-bottom:1rem; }
+        .vs-io-strip > div { background:var(--paper); padding:0.72rem 0.86rem; }
+        .vs-io-strip b { display:block; margin-top:0.18rem; font-size:0.82rem; color:var(--ink-soft); }
+        .vs-metric { background: var(--paper); border: 1px solid var(--line); border-top: 3px solid var(--steel); border-radius: 7px; padding: 0.85rem 0.95rem; min-height: 114px; box-shadow: 0 4px 16px rgba(34,63,76,0.04); }
         .vs-metric.teal { border-top-color: var(--teal); }
-        .vs-metric.amber { border-top-color: var(--amber); }
-        .vs-metric.coral { border-top-color: var(--coral); }
-        .vs-metric span { display:block; color: var(--muted); font-size: 0.78rem; }
-        .vs-metric b { display:block; color: var(--ink); font-size: 1.65rem; line-height: 1.35; margin-top: 0.15rem; }
-        .vs-metric small { color: var(--muted); font-size: 0.72rem; }
-        .vs-list-row { background: var(--paper); border-bottom: 1px solid var(--line); padding: 0.7rem 0.75rem; }
-        .vs-list-row:first-of-type { border-top: 1px solid var(--line); }
+        .vs-metric.amber { border-top-color: var(--violet); }
+        .vs-metric.coral { border-top-color: var(--rose); }
+        .vs-metric span { display:block; color: var(--muted); font-size: 0.76rem; }
+        .vs-metric b { display:block; color: var(--ink); font-size: 1.68rem; line-height: 1.35; margin-top: 0.12rem; }
+        .vs-metric small { color: var(--muted); font-size: 0.71rem; }
+        .vs-list-row { background: var(--paper); border-bottom: 1px solid var(--line); padding: 0.78rem 0.82rem; }
+        .vs-list-row:first-of-type { border-top: 1px solid var(--line); border-radius:7px 7px 0 0; }
+        .vs-list-row:last-of-type { border-radius:0 0 7px 7px; }
         .vs-list-row div { display:flex; justify-content:space-between; gap: 0.5rem; }
-        .vs-list-row span, .vs-list-row small { color: var(--muted); font-size: 0.76rem; }
-        .vs-step-strip { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 0; border: 1px solid var(--line); background: var(--paper); margin-bottom: 1rem; }
-        .vs-step-strip div { display:flex; align-items:center; gap:0.55rem; padding:0.65rem 0.8rem; border-right:1px solid var(--line); }
+        .vs-list-row span, .vs-list-row small { color: var(--muted); font-size: 0.75rem; }
+        .vs-step-strip { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 0; border: 1px solid var(--line); background: var(--paper); border-radius:7px; overflow:hidden; margin-bottom: 0.75rem; }
+        .vs-step-strip div { display:flex; align-items:center; gap:0.6rem; padding:0.72rem 0.82rem; border-right:1px solid var(--line); }
         .vs-step-strip div:last-child { border-right: 0; }
-        .vs-step-strip b { width:25px; height:25px; border:1px solid var(--blue); color:var(--blue); display:grid; place-items:center; border-radius:50%; font-size:0.76rem; }
-        .vs-step-strip span { font-size:0.82rem; font-weight:650; }
-        .vs-guidance-grid { display:grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap:0.45rem; margin:0.6rem 0 0.8rem; }
-        .vs-guidance-grid div { border:1px solid var(--line); background:var(--paper); padding:0.55rem; border-radius:5px; display:flex; gap:0.4rem; align-items:center; }
-        .vs-guidance-grid b { color:var(--blue); }
-        .vs-guidance-grid span { font-size:0.75rem; }
-        .vs-result { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:1px; border:1px solid var(--line); border-left:5px solid #82919a; background:var(--line); margin:0.4rem 0 0.8rem; }
+        .vs-step-strip b { width:27px; height:27px; border:1px solid var(--primary); color:var(--primary); display:grid; place-items:center; border-radius:50%; font-size:0.74rem; flex:0 0 auto; }
+        .vs-step-strip span { font-size:0.8rem; font-weight:700; }
+        .vs-guidance-grid { display:grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap:0.5rem; margin:0.65rem 0 0.85rem; }
+        .vs-guidance-grid div { border:1px solid var(--line); background:var(--paper); padding:0.62rem; border-radius:7px; display:flex; gap:0.45rem; align-items:center; }
+        .vs-guidance-grid b { color:var(--primary); }
+        .vs-guidance-grid span { font-size:0.74rem; }
+        .vs-result { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:1px; border:1px solid var(--line); border-left:5px solid var(--steel); border-radius:7px; overflow:hidden; background:var(--line); margin:0.45rem 0 0.85rem; box-shadow:0 4px 16px rgba(34,63,76,0.04); }
         .vs-result.teal { border-left-color:var(--teal); }
-        .vs-result.amber { border-left-color:var(--amber); }
-        .vs-result.coral { border-left-color:var(--coral); }
-        .vs-result > div { padding:0.65rem 0.8rem; min-width:0; background:var(--paper); }
-        .vs-result small, .vs-result span { display:block; color:var(--muted); font-size:0.74rem; line-height:1.35; overflow-wrap:anywhere; }
+        .vs-result.amber { border-left-color:var(--violet); }
+        .vs-result.coral { border-left-color:var(--rose); }
+        .vs-result > div { padding:0.7rem 0.82rem; min-width:0; background:var(--paper); }
+        .vs-result small, .vs-result span { display:block; color:var(--muted); font-size:0.73rem; line-height:1.4; overflow-wrap:anywhere; }
         .vs-result b { display:block; font-size:1rem; color:var(--ink); margin-top:0.15rem; }
-        .vs-empty { min-height:155px; display:grid; place-content:center; text-align:center; border:1px dashed #b8c5ca; background:#f9fbfb; color:var(--muted); }
+        .vs-empty { min-height:155px; display:grid; place-content:center; text-align:center; border:1px dashed var(--line-strong); border-radius:7px; background:#f9fbfc; color:var(--muted); padding:1rem; }
         .vs-empty b, .vs-empty span { display:block; }
-        .vs-factor { border-left:4px solid var(--amber); background:var(--paper); border-top:1px solid var(--line); border-right:1px solid var(--line); border-bottom:1px solid var(--line); padding:0.55rem 0.7rem; margin-bottom:0.45rem; }
+        .vs-factor { border-left:4px solid var(--violet); background:var(--paper); border-top:1px solid var(--line); border-right:1px solid var(--line); border-bottom:1px solid var(--line); border-radius:0 7px 7px 0; padding:0.62rem 0.74rem; margin-bottom:0.48rem; }
         .vs-factor.good { border-left-color:var(--teal); }
         .vs-factor b, .vs-factor span, .vs-factor small { display:block; }
-        .vs-factor span { color:var(--muted); font-size:0.76rem; }
-        .vs-factor small { color:#50616a; margin-top:0.25rem; line-height:1.35; }
-        .vs-check { display:flex; gap:0.7rem; align-items:flex-start; border-bottom:1px solid var(--line); padding:0.65rem 0; }
-        .vs-check b { width:25px; height:25px; border:1px solid var(--blue); color:var(--blue); display:grid; place-items:center; border-radius:50%; font-size:0.75rem; flex:0 0 auto; }
+        .vs-factor span { color:var(--muted); font-size:0.75rem; }
+        .vs-factor small { color:var(--ink-soft); margin-top:0.25rem; line-height:1.4; }
+        .vs-report-sheet { background:var(--paper); border:1px solid var(--line-strong); border-radius:8px; overflow:hidden; box-shadow:var(--shadow); margin:0.35rem 0 0.9rem; }
+        .vs-report-sheet header { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; padding:1.15rem 1.25rem; border-bottom:1px solid var(--line); background:#fbfcfd; }
+        .vs-report-sheet header span { color:var(--primary); font-size:0.67rem; font-weight:800; }
+        .vs-report-sheet header h2 { margin:0.22rem 0 0.1rem; font-size:1.3rem !important; }
+        .vs-report-sheet header p { margin:0; font-size:0.75rem; color:var(--muted); }
+        .vs-status { display:inline-flex; align-items:center; padding:0.36rem 0.64rem; border:1px solid; border-radius:999px; font-size:0.76rem; white-space:nowrap; }
+        .vs-status.release { color:#477771; border-color:#8eb7b2; background:var(--teal-soft); }
+        .vs-status.review { color:#626b91; border-color:#b3b8cf; background:var(--violet-soft); }
+        .vs-status.retake { color:#965f65; border-color:#d3a7aa; background:var(--rose-soft); }
+        .vs-report-hero { display:grid; grid-template-columns:0.65fr 0.65fr 1.7fr; gap:1px; background:var(--line); border-bottom:1px solid var(--line); }
+        .vs-report-hero > div { background:#ffffff; padding:0.82rem 1.05rem; min-width:0; }
+        .vs-report-hero small { display:block; color:var(--muted); font-size:0.7rem; }
+        .vs-report-hero b { display:block; color:var(--ink); margin-top:0.18rem; overflow-wrap:anywhere; }
+        .vs-report-narrative, .vs-report-recommendation { padding:1rem 1.25rem; border-bottom:1px solid var(--line); }
+        .vs-report-narrative h3 { margin:0.28rem 0 0.25rem; font-size:1.05rem !important; }
+        .vs-report-narrative p, .vs-report-recommendation p { margin:0; line-height:1.5; font-size:0.82rem; }
+        .vs-report-recommendation { background:var(--primary-soft); }
+        .vs-report-recommendation b { display:block; margin:0.28rem 0 0.18rem; color:var(--primary-dark); }
+        .vs-report-sheet footer { padding:0.62rem 1.25rem; color:var(--muted); font-size:0.69rem; background:#fbfcfd; }
+        .vs-action-head { border-left:5px solid var(--violet); background:var(--violet-soft); padding:0.85rem 1rem; border-radius:0 7px 7px 0; margin:0.2rem 0 0.75rem; }
+        .vs-action-head.release { border-left-color:var(--teal); background:var(--teal-soft); }
+        .vs-action-head.retake { border-left-color:var(--rose); background:var(--rose-soft); }
+        .vs-action-head b, .vs-action-head p { display:block; margin:0.22rem 0 0; }
+        .vs-action-head p { font-size:0.8rem; line-height:1.45; }
+        .vs-action-step { display:grid; grid-template-columns:32px 1fr; gap:0.7rem; padding:0.72rem 0; border-bottom:1px solid var(--line); }
+        .vs-action-step > b { width:28px; height:28px; display:grid; place-items:center; border-radius:50%; background:var(--primary-soft); color:var(--primary); font-size:0.75rem; }
+        .vs-action-step strong, .vs-action-step span, .vs-action-step small { display:block; }
+        .vs-action-step strong { color:var(--ink); }
+        .vs-action-step span { color:var(--ink-soft); margin-top:0.2rem; font-size:0.77rem; line-height:1.4; }
+        .vs-action-step small { color:var(--muted); margin-top:0.16rem; line-height:1.4; }
+        .vs-escalation { display:flex; gap:0.65rem; align-items:flex-start; margin:0.8rem 0 0.35rem; padding:0.72rem 0.82rem; background:#f7f9fa; border:1px solid var(--line); border-radius:7px; }
+        .vs-escalation b { white-space:nowrap; color:var(--rose); }
+        .vs-escalation span { color:var(--ink-soft); line-height:1.45; font-size:0.79rem; }
+        .vs-guide-intro { padding:0.35rem 0 0.9rem; max-width:900px; }
+        .vs-guide-intro h2 { margin:0.28rem 0 0.25rem; font-size:1.34rem !important; }
+        .vs-guide-intro p { margin:0; line-height:1.55; }
+        .vs-guide-row { display:grid; grid-template-columns:38px 1fr; gap:0.8rem; padding:0.85rem 0; border-bottom:1px solid var(--line); }
+        .vs-guide-row > b { width:32px; height:32px; display:grid; place-items:center; border:1px solid var(--primary); border-radius:50%; color:var(--primary); font-size:0.78rem; }
+        .vs-guide-row h3 { margin:0 0 0.45rem; font-size:0.98rem !important; }
+        .vs-guide-row dl { display:grid; grid-template-columns:74px minmax(0,1fr); gap:0.28rem 0.65rem; margin:0; }
+        .vs-guide-row dt { color:var(--primary); font-size:0.71rem; font-weight:800; }
+        .vs-guide-row dd { margin:0; color:var(--ink-soft); font-size:0.78rem; line-height:1.45; }
+        .vs-check { display:flex; gap:0.7rem; align-items:flex-start; border-bottom:1px solid var(--line); padding:0.68rem 0; }
+        .vs-check b { width:27px; height:27px; border:1px solid var(--primary); color:var(--primary); display:grid; place-items:center; border-radius:50%; font-size:0.73rem; flex:0 0 auto; }
         .vs-check span { line-height:1.5; }
-        div[data-testid="stMetric"] { border:1px solid var(--line); background:var(--paper); border-radius:6px; padding:0.55rem 0.65rem; }
-        .stButton > button, .stDownloadButton > button { border-radius:5px; min-height:2.45rem; font-weight:650; }
-        .stButton > button[kind="primary"] { background:#557f88; border-color:#557f88; color:#fff; }
-        .stButton > button[kind="primary"]:hover { background:#476f78; border-color:#476f78; color:#fff; }
-        div[data-testid="stDataFrame"] { border:1px solid var(--line); }
-        div[data-testid="stAlert"] { border-radius:5px; }
+        div[data-testid="stMetric"] { border:1px solid var(--line); background:var(--paper); border-radius:7px; padding:0.58rem 0.68rem; }
+        .stButton > button, .stDownloadButton > button { border-radius:7px; min-height:2.52rem; font-weight:680; border-color:var(--line-strong); transition:background 140ms ease, border-color 140ms ease, box-shadow 140ms ease; }
+        .stButton > button p, .stDownloadButton > button p { color:inherit !important; }
+        .stButton > button:hover, .stDownloadButton > button:hover { border-color:var(--primary); color:var(--primary-dark); box-shadow:0 4px 12px rgba(71,120,141,0.10); }
+        .stButton > button:focus-visible, .stDownloadButton > button:focus-visible { outline:3px solid rgba(71,120,141,0.22); outline-offset:2px; }
+        .stButton > button[kind="primary"] { background:var(--primary); border-color:var(--primary); color:#fff; }
+        .stButton > button[kind="primary"]:hover { background:var(--primary-dark); border-color:var(--primary-dark); color:#fff; }
+        div[data-testid="stDataFrame"] { border:1px solid var(--line); border-radius:7px; overflow:hidden; background:#fff; }
+        div[data-testid="stAlert"] { border-radius:7px; border-width:1px; }
+        div[data-baseweb="tab-list"] { gap:0.2rem; border-bottom:1px solid var(--line); }
+        button[data-baseweb="tab"] { padding-left:0.85rem; padding-right:0.85rem; }
+        @media (max-width: 1050px) {
+            .vs-workflow-band { grid-template-columns:1fr; }
+            .vs-workflow-band ol { border-top:1px solid var(--line); padding-top:0.45rem; }
+        }
         @media (max-width: 900px) {
-            .block-container { padding-top: 2.2rem; padding-left: 1rem; padding-right: 1rem; }
-            .vs-page-title { font-size: 1.45rem !important; }
+            .block-container { padding-top: 3.6rem; padding-left: 1rem; padding-right: 1rem; }
+            .vs-page-title { font-size: 1.48rem !important; }
             .vs-env { margin-top: 0; flex-wrap: wrap; gap: 0.25rem 0.7rem; }
             .vs-step-strip { grid-template-columns: repeat(2,minmax(0,1fr)); }
             .vs-step-strip div:nth-child(2) { border-right:0; }
             .vs-guidance-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
             .vs-result { grid-template-columns: repeat(2,minmax(0,1fr)); }
-            .vs-metric { min-height: 100px; }
+            .vs-metric { min-height: 104px; }
+            .vs-report-hero { grid-template-columns:1fr 1fr; }
+            .vs-report-hero > div:last-child { grid-column:1 / -1; }
         }
-        @media (max-width: 520px) {
-            .vs-step-strip, .vs-guidance-grid { grid-template-columns: 1fr; }
+        @media (max-width: 620px) {
+            .vs-workflow-band ol { grid-template-columns:repeat(2,minmax(0,1fr)); }
+            .vs-workflow-band li:nth-child(3) { border-top:1px solid var(--line); }
+            .vs-workflow-band li:nth-child(4) { border-top:1px solid var(--line); }
+            .vs-step-strip, .vs-guidance-grid, .vs-io-strip { grid-template-columns: 1fr; }
             .vs-step-strip div { border-right: 0; border-bottom: 1px solid var(--line); }
             .vs-step-strip div:last-child { border-bottom: 0; }
             .vs-result { grid-template-columns: 1fr; }
+            .vs-report-sheet header { flex-direction:column; }
+            .vs-report-hero { grid-template-columns:1fr; }
+            .vs-report-hero > div:last-child { grid-column:auto; }
+            .vs-guide-row dl { grid-template-columns:1fr; }
+            .vs-escalation { display:block; }
+            .vs-escalation span { display:block; margin-top:0.25rem; }
         }
         </style>
         """,

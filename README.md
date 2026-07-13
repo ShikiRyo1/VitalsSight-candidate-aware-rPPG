@@ -34,7 +34,7 @@ Optional deep-learning dependencies are listed in `requirements-deep.txt` and `r
 
 ## Product console
 
-The default Streamlit entry point is a complete research-product workflow with guided acquisition, video-quality qualification, release/review/retake states, a persistent review queue, evidence attribution, versioned PDF/JSON/CSV reports, protocol-bound metrics, and an integration surface.
+The default Streamlit entry point is a complete research-product workflow with role-based operation guides, video-quality qualification, explicit release/review/retake states, a persistent review queue, evidence attribution, versioned PDF/JSON/Markdown/CSV reports, protocol-bound metrics, and an integration surface. Each non-release report connects the triggering signal and observed value to its policy target, recommended action, verification criterion, and escalation path; every exercised command returns visible feedback.
 
 ![VitalsSight evidence operations console](docs/assets/product-console-overview.png)
 
@@ -59,7 +59,7 @@ curl -X POST http://127.0.0.1:8010/api/v1/assessments/video \
   -F "actor=research-operator"
 ```
 
-The endpoint returns `release`, `review`, or `retake`. Only `release` may contain `released_hr_bpm`; the raw upload is deleted after processing. Interactive API documentation is available at `http://127.0.0.1:8010/docs` while the API is running.
+The endpoint returns `release`, `review`, or `retake`. Only `release` may contain `released_hr_bpm`; the raw upload is deleted after processing. Interactive API documentation is available at `http://127.0.0.1:8010/docs` while the API is running. The product boundary remains research-only: the console does not claim live clinical monitoring, emergency alerting, autonomous clinical release, production identity/access management, or medical-device readiness.
 
 The previous experiment-heavy dashboard is retained at `app/legacy_research_dashboard.py` for provenance, but it is no longer the default product surface. See [docs/PRODUCT_BENCHMARK_AND_COMPLETION.md](docs/PRODUCT_BENCHMARK_AND_COMPLETION.md) for the official-source product benchmark and implemented workflow contract.
 

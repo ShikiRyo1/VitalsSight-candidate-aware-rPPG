@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from src.product.console_api import create_app
 from src.product.console_service import (
     ATTRIBUTION_BOUNDARY,
+    build_action_plan,
     build_attribution,
     build_report_markdown,
     build_report_payload,
@@ -123,6 +124,76 @@ def test_report_includes_review_and_audit_records(tmp_path: Path) -> None:
     assert "Reviewer note: Candidate conflict verified." in markdown
     assert "review.updated" in markdown
     assert pdf.startswith(b"%PDF")
+
+
+def test_action_plan_links_motion_trigger_to_threshold_and_verification() -> None:
+    plan = build_action_plan(make_demo_cases()[1])
+    face = next(item for item in plan["evidence"] if item["source_field"] == "face_coverage")
+    motion = next(item for item in plan["evidence"] if item["source_field"] == "motion_score")
+    motion_step = next(item for item in plan["steps"] if item["source_field"] == "motion_score")
+
+    assert plan["decision"] == "review"
+    assert motion["observed"] == "61%"
+    assert motion["target"] == "<= 35%"
+    assert motion["status"] == "triggered"
+    assert "met the documented target" in face["reason"]
+    assert "exceeded the policy limit" in motion["reason"]
+    assert "remain still" in motion_step["action"]
+    assert "no greater than 35%" in motion_step["verification"]
+
+
+def test_action_plan_explains_low_light_and_candidate_shortage() -> None:
+    plan = build_action_plan(make_demo_cases()[2])
+    triggered = {item["source_field"]: item for item in plan["evidence"] if item["status"] == "triggered"}
+
+    assert plan["decision"] == "retake"
+    assert triggered["illumination_score"]["target"] == ">= 55%"
+    assert triggered["candidate_count"]["target"] == ">= 3"
+    assert any(item["source_field"] == "illumination_score" for item in plan["steps"])
+    assert "do not force a result" in plan["escalation"]
+
+
+def test_release_action_plan_preserves_evidence_and_research_boundary() -> None:
+    plan = build_action_plan(make_demo_cases()[0])
+
+    assert plan["decision"] == "release"
+    assert not [item for item in plan["evidence"] if item["status"] == "triggered"]
+    assert plan["steps"][0]["source_field"] == "decision"
+    assert "research workflow" in plan["steps"][1]["action"]
+    assert "not a clinical recommendation" in plan["boundary"]
+
+
+def test_report_v2_contains_evidence_to_action_chain() -> None:
+    payload = build_report_payload(make_demo_cases()[1])
+    report = build_report_markdown(payload, language="en")
+    chinese = build_report_markdown(payload, language="zh")
+
+    assert payload["report_version"].endswith(".v2")
+    assert payload["action_plan"]["evidence"]
+    assert "## Evidence supporting the recommendation" in report
+    assert "## Recommended workflow" in report
+    assert "| Motion | 61% | <= 35% | triggered |" in report
+    assert "## 建议依据" in chinese
+    assert "## 建议操作流程" in chinese
+
+
+def test_sidebar_restore_control_is_not_hidden_by_product_css() -> None:
+    source = (Path(__file__).resolve().parents[1] / "app" / "product_console.py").read_text(encoding="utf-8")
+
+    assert '[data-testid="stSidebarCollapsedControl"]' in source
+    assert '[data-testid="stExpandSidebarButton"]' in source
+    assert '[data-testid="stToolbar"] { display: flex !important; }' in source
+    assert '[data-testid="stToolbar"] { display: none; }' not in source
+
+
+def test_workspace_navigation_resets_the_main_scroll_position() -> None:
+    source = (Path(__file__).resolve().parents[1] / "app" / "product_console.py").read_text(encoding="utf-8")
+
+    assert 'vs_rendered_section' in source
+    assert 'querySelector(\'[data-testid="stMain"]\')' in source
+    assert "main.scrollTo({ top: 0, left: 0" in source
+    assert "closeMobileSidebar" in source
+    assert "window.parent.innerWidth > 900" in source
 
 
 def test_chinese_localization_handles_joined_preflight_actions() -> None:
