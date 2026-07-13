@@ -20,7 +20,7 @@ This release does **not** contain raw videos, identifiable participant frames, t
 
 ## Installation
 
-Python 3.10 or 3.11 is recommended.
+Python 3.10, 3.11, or 3.12 is supported. The product-console QA described below was run on Python 3.12.
 
 ```bash
 python -m venv .venv
@@ -31,6 +31,39 @@ pip install -r requirements-core.txt
 ```
 
 Optional deep-learning dependencies are listed in `requirements-deep.txt` and `requirements-torch-cu128.txt`. Install a PyTorch build appropriate for the local CUDA runtime before installing optional deep components.
+
+## Product console
+
+The default Streamlit entry point is a complete research-product workflow with guided acquisition, video-quality qualification, release/review/retake states, a persistent review queue, evidence attribution, versioned PDF/JSON/CSV reports, protocol-bound metrics, and an integration surface.
+
+![VitalsSight evidence operations console](docs/assets/product-console-overview.png)
+
+```bash
+streamlit run app/streamlit_app.py
+```
+
+The accompanying REST API uses the same SQLite evidence and audit store:
+
+```bash
+uvicorn app.api_server:app --host 127.0.0.1 --port 8010
+```
+
+Submit a consented research video through the same quality-first workflow:
+
+```bash
+curl -X POST http://127.0.0.1:8010/api/v1/assessments/video \
+  -F "file=@adult_face_video.mp4" \
+  -F "consent_recorded=true" \
+  -F "purpose=workflow_validation" \
+  -F "retention_policy=delete_after_analysis" \
+  -F "actor=research-operator"
+```
+
+The endpoint returns `release`, `review`, or `retake`. Only `release` may contain `released_hr_bpm`; the raw upload is deleted after processing. Interactive API documentation is available at `http://127.0.0.1:8010/docs` while the API is running.
+
+The previous experiment-heavy dashboard is retained at `app/legacy_research_dashboard.py` for provenance, but it is no longer the default product surface. See [docs/PRODUCT_BENCHMARK_AND_COMPLETION.md](docs/PRODUCT_BENCHMARK_AND_COMPLETION.md) for the official-source product benchmark and implemented workflow contract.
+
+The final functional and visual verification record is in [docs/PRODUCT_QA_REPORT.md](docs/PRODUCT_QA_REPORT.md).
 
 ## Quick check
 
@@ -92,3 +125,4 @@ The manuscript citation will be added after publication. Until then, cite the re
 
 No software license is granted by publication of this repository unless a `LICENSE` file is added by the authors. Copyright remains with the project authors.
 
+The bundled OpenCV face-cascade data file retains its upstream license header. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

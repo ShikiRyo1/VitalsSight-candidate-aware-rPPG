@@ -6,6 +6,8 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.playwright-cli/
+artifacts_*.log
 
 # Credentials and machine-local configuration
 .env
@@ -56,4 +58,3 @@ desktop.ini
 *.tmp
 *.bak
 ~$*
-

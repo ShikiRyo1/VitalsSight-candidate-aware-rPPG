@@ -7,7 +7,7 @@ name = "vitalssight"
 version = "0.1.0"
 description = "Candidate-aware camera-based heart-rate estimation with release/review outputs"
 readme = "README.md"
-requires-python = ">=3.10,<3.12"
+requires-python = ">=3.10,<3.13"
 dependencies = [
   "numpy",
   "pandas",
@@ -17,10 +17,24 @@ dependencies = [
   "pyyaml",
 ]
 
+[project.optional-dependencies]
+product = [
+  "fastapi",
+  "mediapipe",
+  "plotly",
+  "python-multipart",
+  "reportlab",
+  "streamlit",
+  "uvicorn",
+]
+dev = [
+  "httpx2",
+  "pytest>=8",
+]
+
 [tool.setuptools.packages.find]
 include = ["src*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
-
