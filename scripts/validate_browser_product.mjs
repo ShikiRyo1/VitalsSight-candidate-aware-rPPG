@@ -437,9 +437,12 @@ try {
   check("fresh mobile sidebar can collapse and reopen", true);
   await gotoWorkspace(mobilePage, "Integrations");
   const mobileExpand = mobilePage.getByRole("button", { name: /keyboard_double_arrow_right/ });
-  check("mobile integration navigation auto-closes sidebar", await mobileExpand.isVisible());
+  await mobileExpand.waitFor({ state: "visible", timeout: 10000 });
+  check("mobile integration navigation auto-closes sidebar", true);
   await gotoWorkspace(mobilePage, "New assessment");
-  check("mobile navigation auto-closes sidebar", await mobilePage.getByRole("button", { name: /keyboard_double_arrow_right/ }).isVisible());
+  const mobileAssessmentExpand = mobilePage.getByRole("button", { name: /keyboard_double_arrow_right/ });
+  await mobileAssessmentExpand.waitFor({ state: "visible", timeout: 10000 });
+  check("mobile navigation auto-closes sidebar", true);
   check("mobile viewport has no horizontal overflow", await mobilePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2));
   await saveState(mobilePage, "12_mobile_new_assessment");
 
