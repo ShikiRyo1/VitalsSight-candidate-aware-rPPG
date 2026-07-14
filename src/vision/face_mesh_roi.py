@@ -83,6 +83,20 @@ class MediaPipeFaceLandmarkDetector:
             except Exception:
                 self._landmarker = None
 
+    @property
+    def available(self) -> bool:
+        return self._mesh is not None or self._landmarker is not None
+
+    @property
+    def backend(self) -> str:
+        if self._mesh is not None:
+            return "mediapipe_face_mesh"
+        if self._landmarker is not None:
+            return "mediapipe_face_landmarker_task"
+        if self.mp is None:
+            return "mediapipe_package_unavailable"
+        return "mediapipe_model_unavailable"
+
     def detect(self, frame: np.ndarray) -> np.ndarray | None:
         if self.mp is None:
             return None

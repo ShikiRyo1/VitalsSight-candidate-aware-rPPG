@@ -41,7 +41,7 @@ from src.product.console_store import ConsoleStore
 
 
 DB_PATH = Path(os.getenv("VITALSSIGHT_DB_PATH", PROJECT / "runtime" / "vitalsight_console.db"))
-UPLOAD_DIR = PROJECT / "runtime" / "uploads"
+UPLOAD_DIR = Path(os.getenv("VITALSSIGHT_UPLOAD_DIR", PROJECT / "runtime" / "uploads"))
 HEADLINE_METRICS = PROJECT / "reproducibility" / "headline_metrics.csv"
 PROTOCOL_SUMMARY = PROJECT / "reproducibility" / "protocol_summary.json"
 
@@ -104,7 +104,9 @@ def run() -> None:
     st.session_state["vs_section"] = section
     if st.session_state.get("vs_rendered_section") != section:
         st.session_state["vs_rendered_section"] = section
-        _reset_main_scroll()
+        navigation_nonce = int(st.session_state.get("vs_navigation_nonce", 0)) + 1
+        st.session_state["vs_navigation_nonce"] = navigation_nonce
+        _reset_main_scroll(navigation_nonce)
     if st.sidebar.button(
         _ui("Open guided workflow", "打开操作教学"),
         icon=":material/menu_book:",
@@ -159,10 +161,12 @@ def _init_state() -> None:
         "vs_focus_case": "",
         "vs_preflight": None,
         "vs_upload_path": "",
+        "vs_upload_widget_version": 0,
         "vs_assessment_result": None,
         "vs_flash": "",
         "vs_flash_kind": "success",
         "vs_rendered_section": "",
+        "vs_navigation_nonce": 0,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -387,6 +391,7 @@ def _new_assessment(store: ConsoleStore) -> None:
             uploaded = st.file_uploader(
                 _ui("Adult RGB face video", "成人 RGB 人脸视频"),
                 type=["mp4", "mov", "avi", "mkv", "m4v"],
+                key=f"vs_video_upload_{st.session_state['vs_upload_widget_version']}",
                 help=_ui(
                     "Use a stable, front-facing 20-30 second recording with even lighting.",
                     "建议使用正面、稳定、光照均匀的 20-30 秒视频。",
@@ -451,6 +456,7 @@ def _new_assessment(store: ConsoleStore) -> None:
                     )
         if reset_col.button(_ui("Clear", "清除"), icon=":material/ink_eraser:", width="stretch"):
             _remove_session_upload()
+            _reset_upload_widget()
             st.session_state["vs_assessment_result"] = None
             st.session_state["vs_preflight"] = None
             _set_flash(_ui("Assessment input and session result were cleared.", "已清除评估输入和本次会话结果。"), "info")
@@ -823,6 +829,33 @@ def _reports(store: ConsoleStore) -> None:
             st.dataframe(pd.DataFrame(candidates), hide_index=True, width="stretch")
         else:
             st.info(_ui("No candidate branch was retained for this case.", "该案例未保留候选分支。"))
+        st.subheader(_ui("Implementation provenance", "实现与运行溯源"))
+        runtime = case.get("runtime_metadata") or {}
+        preflight = case.get("preflight") or {}
+        provenance_rows = [
+            [_ui("Model version", "模型版本"), case.get("model_version") or "N/A"],
+            [_ui("Policy version", "策略版本"), case.get("policy_version") or "N/A"],
+            [
+                _ui("Face detector backend", "人脸检测后端"),
+                runtime.get("detector_backend") or preflight.get("face_detector_backend") or "N/A",
+            ],
+            [
+                _ui("Analysis sampling rate", "分析采样率"),
+                f"{runtime['analysis_fps']} fps" if runtime.get("analysis_fps") is not None else "N/A",
+            ],
+            [
+                _ui("Analysis frame budget", "分析帧预算"),
+                runtime.get("max_analysis_frames", "N/A"),
+            ],
+        ]
+        st.dataframe(
+            pd.DataFrame(
+                provenance_rows,
+                columns=[_ui("Field", "字段"), _ui("Value", "内容")],
+            ),
+            hide_index=True,
+            width="stretch",
+        )
     with tabs[1]:
         _action_plan_panel(payload["action_plan"], compact=False)
     with tabs[2]:
@@ -863,13 +896,14 @@ def _report_preview(payload: dict[str, Any]) -> None:
     plan = payload["action_plan"]
     decision = str(case.get("decision"))
     released = _released_hr(case)
+    acquisition_gate = _acquisition_gate_text(case)
     st.markdown(
         f"<div class='vs-report-sheet'><header><div><span>VITALSSIGHT / { _escape(payload['report_version']) }</span>"
         f"<h2>{_escape(_ui('Evidence report', '证据报告'))}</h2>"
         f"<p>{_escape(case.get('display_id'))} · {_escape(payload['generated_at'])}</p></div>"
         f"<strong class='vs-status {decision}'>{_escape(_decision_text(decision))}</strong></header>"
         f"<section class='vs-report-hero'><div><small>{_escape(_ui('Released HR', '已发布心率'))}</small><b>{_escape(released)}</b></div>"
-        f"<div><small>{_escape(_ui('Quality', '质量'))}</small><b>{_escape(_percent(case.get('quality_score')))}</b></div>"
+        f"<div><small>{_escape(_ui('Acquisition gate', '采集门控'))}</small><b>{_escape(acquisition_gate)}</b></div>"
         f"<div><small>{_escape(_ui('Policy', '策略'))}</small><b>{_escape(case.get('policy_version'))}</b></div></section>"
         f"<section class='vs-report-narrative'><span>{_escape(_ui('CURRENT INTERPRETATION', '当前解释'))}</span>"
         f"<h3>{_escape(_data_text(plan['headline']))}</h3><p>{_escape(_data_text(plan['rationale']))}</p></section>"
@@ -1139,14 +1173,24 @@ def _result_summary(case: dict[str, Any]) -> None:
     decision = str(case.get("decision", "review"))
     tone = {"release": "teal", "review": "amber", "retake": "coral"}.get(decision, "neutral")
     hr = _released_hr(case)
+    acquisition_gate = _acquisition_gate_text(case)
     st.markdown(
         f"<div class='vs-result {tone}'><div><small>{_escape(_ui('Decision','决策'))}</small>"
         f"<b>{_escape(_decision_text(decision))}</b></div>"
         f"<div><small>{_escape(_ui('Published HR','已发布心率'))}</small><b>{_escape(hr)}</b></div>"
-        f"<div><small>{_escape(_ui('Quality','质量'))}</small><b>{_escape(_percent(case.get('quality_score')))}</b></div>"
+        f"<div><small>{_escape(_ui('Acquisition gate','采集门控'))}</small><b>{_escape(acquisition_gate)}</b></div>"
         f"<div><small>{_escape(_ui('Next action','下一步'))}</small><span>{_escape(_data_text(case.get('recommended_action')))}</span></div></div>",
         unsafe_allow_html=True,
     )
+
+
+def _acquisition_gate_text(case: dict[str, Any]) -> str:
+    overall = str((case.get("preflight") or {}).get("overall") or "").lower()
+    if str(case.get("decision")) == "retake" or overall == "fail":
+        return _ui("Not passed", "未通过")
+    if overall == "warn":
+        return _ui("Passed with warnings", "通过但有警告")
+    return _ui("Passed", "通过")
 
 
 def _preflight_panel(preflight: dict[str, Any]) -> None:
@@ -1313,11 +1357,11 @@ def _go(section: str) -> None:
     st.rerun()
 
 
-def _reset_main_scroll() -> None:
+def _reset_main_scroll(navigation_nonce: int) -> None:
     """Start each workspace view at its first instruction after navigation."""
-    component_html(
-        """
+    script = """
         <script>
+        const navigationNonce = __NAVIGATION_NONCE__;
         const resetMainScroll = () => {
             const main = window.parent.document.querySelector('[data-testid="stMain"]');
             if (main) main.scrollTo({ top: 0, left: 0, behavior: 'instant' });
@@ -1336,10 +1380,12 @@ def _reset_main_scroll() -> None:
             resetMainScroll();
             closeMobileSidebar();
             attempts += 1;
-            if (attempts >= 12) window.clearInterval(timer);
+            if (attempts >= 20) window.clearInterval(timer);
         }, 100);
         </script>
-        """,
+        """.replace("__NAVIGATION_NONCE__", str(int(navigation_nonce)))
+    component_html(
+        script,
         height=0,
         width=0,
     )
@@ -1353,6 +1399,7 @@ def _set_flash(message: str, kind: str = "success") -> None:
 def _start_assessment() -> None:
     """Open a clean acquisition flow without discarding stored cases."""
     _remove_session_upload()
+    _reset_upload_widget()
     for key in ("vs_assessment_result", "vs_preflight", "vs_upload_path"):
         st.session_state.pop(key, None)
     _go("New assessment")
@@ -1368,6 +1415,12 @@ def _remove_session_upload() -> None:
         except (OSError, ValueError):
             pass
     st.session_state["vs_upload_path"] = ""
+
+
+def _reset_upload_widget() -> None:
+    """Force Streamlit to rebuild the uploader after an assessment reset."""
+    current = int(st.session_state.get("vs_upload_widget_version", 0))
+    st.session_state["vs_upload_widget_version"] = current + 1
 
 
 def _purge_stale_uploads(*, max_age_seconds: int = 2 * 60 * 60) -> None:

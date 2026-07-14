@@ -15,7 +15,7 @@ import pandas as pd
 
 SCHEMA_VERSION = "vitalssight.console.case.v1"
 REPORT_VERSION = "vitalssight.evidence-report.v2"
-POLICY_VERSION = "public_candidate_release_gate.v1"
+POLICY_VERSION = "public_candidate_release_gate.v2"
 MODEL_VERSION = "public_research_artifact.2026-07"
 CLAIM_BOUNDARY = (
     "Retrospective research workflow only. The output is not a diagnosis, emergency alert, "
@@ -43,6 +43,20 @@ CONSOLE_TEXT_ZH = {
     "Center the full face inside the frame and record again.": "将完整人脸置于画面中央后重新录制。",
     "Correct the listed acquisition issue and run a new recording.": "修正列出的采集问题后重新录制。",
     "Inspect candidate evidence or repeat the recording.": "检查候选证据，或重新采集。",
+    "Inspect window-level and candidate evidence or repeat the recording under stable conditions.": "检查窗口级与候选证据，或在稳定条件下重新采集。",
+    "Window consistency": "窗口一致性",
+    "A stable majority of analyzed windows is required before an uploaded-video result is released.": "上传视频结果放行前，分析窗口必须形成稳定多数。",
+    "Window-level HR estimates did not form the required stable majority.": "窗口级心率估计未形成所要求的稳定多数。",
+    "Review the window-level estimates and repeat the recording if the spread remains unresolved.": "检查窗口级估计；若离散仍无法消解，请重新采集。",
+    "Confirm at least two thirds of analyzed windows agree within 10 BPM before release.": "放行前确认至少三分之二的分析窗口在 10 BPM 内一致。",
+    "inter_window_hr_disagreement": "窗口间心率估计不一致",
+    "no_stable_cross_window_candidate_track": "未形成稳定的跨窗口候选轨迹",
+    "competing_cross_window_candidate_tracks": "存在竞争性的跨窗口候选轨迹",
+    "Competing candidate tracks": "竞争候选轨迹",
+    "More than one cross-window candidate track remained plausible under the documented margin.": "在既定分数间隔内，仍有多条跨窗口候选轨迹具有合理性。",
+    "Keep the competing tracks linked to the case and route them to review.": "保留与案例关联的竞争轨迹并转入复核。",
+    "Confirm that no competing track remains within the documented score margin before release.": "放行前确认既定分数间隔内不再存在竞争轨迹。",
+    "Absence of a similarly supported cross-window track is required for release.": "放行要求不存在证据支持程度相近的跨窗口竞争轨迹。",
     "Inspect the evidence packet before proceeding.": "继续前请检查证据包。",
     "No action required.": "无需操作。",
     "Record at least 8 seconds; 20-30 seconds is preferred.": "至少录制 8 秒，建议 20-30 秒。",
@@ -80,6 +94,18 @@ CONSOLE_TEXT_ZH = {
     "Derived from stored quality evidence; no video duration or frame metadata is implied.": "该面板由已存质量证据派生，不代表真实视频时长或帧元数据。",
     "supports release": "支持放行",
     "supports review": "支持复核",
+    "supports pipeline entry": "支持进入候选构建",
+    "supports retake": "支持重采",
+    "requires attention": "需要关注",
+    "not evaluated": "未评估",
+    "Candidate construction": "候选构建",
+    "not entered": "未进入",
+    "preflight pass": "采集前检查通过",
+    "Candidate construction was not entered because preflight failed; candidate count is therefore not an acquisition failure.": "由于采集前检查失败，系统未进入候选构建；因此候选数为零不代表候选算法失败。",
+    "This acquisition check failed before candidate construction began.": "该采集检查在候选构建开始前失败。",
+    "This acquisition check returned a warning and should be corrected before rerunning.": "该采集检查返回警告，建议在重新运行前纠正。",
+    "Repeat preflight and confirm this check passes before candidate construction begins.": "重新执行采集前检查，并在候选构建开始前确认该项通过。",
+    "The candidate stage was intentionally skipped after the failed acquisition gate.": "采集门控失败后，候选阶段按设计被跳过。",
     "Face visibility": "人脸可见性",
     "Illumination": "光照",
     "Motion": "运动",
@@ -120,6 +146,7 @@ CONSOLE_TEXT_ZH = {
     "One or more quality or candidate checks crossed the configured review boundary, so HR remains withheld.": "一个或多个质量或候选检查越过既定复核边界，因此心率保持未发布。",
     "One or more acquisition checks failed before a reportable candidate could be established.": "在形成可报告候选前，一个或多个采集检查未通过。",
     "within target": "目标内",
+    "warning": "警告",
     "triggered": "已触发",
     "unavailable": "不可用",
     "This signal met the documented target and did not trigger corrective action.": "该信号已达到既定目标，未触发纠正操作。",
@@ -439,6 +466,59 @@ def build_attribution(case: dict[str, Any]) -> dict[str, Any]:
     case = ensure_output_contract(case)
     factors: list[dict[str, Any]] = []
 
+    preflight = case.get("preflight") or {}
+    preflight_checks = preflight.get("checks") or []
+    if case["decision"] == "retake" and preflight_checks:
+        for item in preflight_checks:
+            check = str(item.get("check") or "acquisition check")
+            status = str(item.get("status") or "fail").lower()
+            value = finite_float(item.get("value"))
+            factors.append(
+                {
+                    "factor": check,
+                    "observed": None if value is None else round(value, 3),
+                    "unit": str(item.get("unit") or ""),
+                    "status": (
+                        "supports pipeline entry"
+                        if status == "pass"
+                        else ("requires attention" if status == "warn" else "supports retake")
+                    ),
+                    "direction": 1 if status == "pass" else -1,
+                    "reason": (
+                        "This signal met the documented target and did not trigger corrective action."
+                        if status == "pass"
+                        else (
+                            "This acquisition check returned a warning and should be corrected before rerunning."
+                            if status == "warn"
+                            else "This acquisition check failed before candidate construction began."
+                        )
+                    ),
+                    "source_field": f"preflight.checks.{check}",
+                }
+            )
+        factors.append(
+            {
+                "factor": "Candidate construction",
+                "observed": "not entered",
+                "unit": "stage",
+                "status": "not evaluated",
+                "direction": 0,
+                "reason": "The candidate stage was intentionally skipped after the failed acquisition gate.",
+                "source_field": "pipeline.candidate_construction",
+            }
+        )
+        factors.sort(key=lambda item: (item["direction"], item["factor"]))
+        negative = [item for item in factors if item["direction"] < 0]
+        positive = [item for item in factors if item["direction"] > 0]
+        return {
+            "attribution_type": "preflight_evidence_and_policy_attribution",
+            "decision": case["decision"],
+            "primary_review_drivers": negative[:3],
+            "primary_release_support": positive[:3],
+            "all_factors": factors,
+            "boundary": ATTRIBUTION_BOUNDARY,
+        }
+
     def add(
         factor: str,
         value: float | None,
@@ -448,14 +528,19 @@ def build_attribution(case: dict[str, Any]) -> dict[str, Any]:
         reason: str,
         source_field: str,
     ) -> None:
-        status = "supports release" if positive else "supports review"
+        if value is None:
+            status = "not available"
+            direction = 0
+        else:
+            status = "supports release" if positive else "supports review"
+            direction = 1 if positive else -1
         factors.append(
             {
                 "factor": factor,
                 "observed": None if value is None else round(value, 3),
                 "unit": unit,
                 "status": status,
-                "direction": 1 if positive else -1,
+                "direction": direction,
                 "reason": reason,
                 "source_field": source_field,
             }
@@ -497,6 +582,26 @@ def build_attribution(case: dict[str, Any]) -> dict[str, Any]:
         reason="Agreement across routes and regions supports one branch without using reference HR.",
         source_field="agreement_fraction",
     )
+    window_consistency = finite_float(case.get("window_consistency_fraction"))
+    if window_consistency is not None:
+        add(
+            "Window consistency",
+            window_consistency,
+            "fraction",
+            positive=window_consistency >= (2 / 3),
+            reason="A stable majority of analyzed windows is required before an uploaded-video result is released.",
+            source_field="window_consistency_fraction",
+        )
+    competing_tracks = finite_float(case.get("competing_track_count"))
+    if competing_tracks is not None:
+        add(
+            "Competing candidate tracks",
+            competing_tracks,
+            "count",
+            positive=competing_tracks == 0,
+            reason="Absence of a similarly supported cross-window track is required for release.",
+            source_field="competing_track_count",
+        )
     harmonic = finite_float(case.get("harmonic_risk"))
     add(
         "Harmonic ambiguity",
@@ -575,55 +680,129 @@ def build_action_plan(case: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
+    preflight = normalized.get("preflight") or {}
+    preflight_checks = preflight.get("checks") or []
+    if normalized["decision"] == "retake" and preflight_checks:
+        targets = {
+            "file readability": "decodable supported video",
+            "duration": ">= 20 s preferred; >= 8 s minimum",
+            "frame rate": ">= 20 fps preferred; >= 15 fps minimum",
+            "resolution": ">= 480 px preferred; >= 240 px warning floor",
+            "illumination": "45-210 luma",
+            "motion": "<= 10 preferred; <= 22 warning ceiling",
+            "face visibility": ">= 70% preferred; >= 35% warning floor",
+        }
+        for item in preflight_checks:
+            check = str(item.get("check") or "acquisition check")
+            status = str(item.get("status") or "fail").lower()
+            value = finite_float(item.get("value"))
+            unit = str(item.get("unit") or "")
+            if unit == "fraction" and value is not None:
+                display = f"{value:.0%}"
+            elif value is None:
+                display = "NA"
+            else:
+                display = f"{value:.3f}".rstrip("0").rstrip(".")
+                if unit:
+                    display = f"{display} {unit}"
+            evidence.append(
+                {
+                    "signal": check,
+                    "source_field": f"preflight.checks.{check}",
+                    "observed": display,
+                    "target": targets.get(check, "pass preflight"),
+                    "status": "within target" if status == "pass" else ("warning" if status == "warn" else "triggered"),
+                    "reason": (
+                        "This signal met the documented target and did not trigger corrective action."
+                        if status == "pass"
+                        else (
+                            "This acquisition check returned a warning and should be corrected before rerunning."
+                            if status == "warn"
+                            else "This acquisition check failed before candidate construction began."
+                        )
+                    ),
+                }
+            )
+            if status != "pass":
+                steps.append(
+                    {
+                        "step": len(steps) + 1,
+                        "action": str(item.get("action") or normalized.get("recommended_action")),
+                        "because": (
+                            "This acquisition check returned a warning and should be corrected before rerunning."
+                            if status == "warn"
+                            else "This acquisition check failed before candidate construction began."
+                        ),
+                        "verification": "Repeat preflight and confirm this check passes before candidate construction begins.",
+                        "source_field": f"preflight.checks.{check}",
+                    }
+                )
+        evidence.append(
+            {
+                "signal": "Candidate construction",
+                "source_field": "pipeline.candidate_construction",
+                "observed": "not entered",
+                "target": "preflight pass",
+                "status": "not evaluated",
+                "reason": "Candidate construction was not entered because preflight failed; candidate count is therefore not an acquisition failure.",
+            }
+        )
+    else:
+        preflight_checks = []
+
     face = finite_float(normalized.get("face_coverage"))
-    add_evidence(
-        "Face visibility",
-        "face_coverage",
-        face,
-        target=">= 70%",
-        within_target=None if face is None else face >= 0.70,
-        display="NA" if face is None else f"{face:.0%}",
-        reason="Face visibility did not reach the policy threshold.",
-        action="Move the full face into the center of the frame and remove major occlusion.",
-        verification="Confirm face visibility is at least 70% before rerunning the pipeline.",
-    )
+    if not preflight_checks:
+        add_evidence(
+            "Face visibility",
+            "face_coverage",
+            face,
+            target=">= 70%",
+            within_target=None if face is None else face >= 0.70,
+            display="NA" if face is None else f"{face:.0%}",
+            reason="Face visibility did not reach the policy threshold.",
+            action="Move the full face into the center of the frame and remove major occlusion.",
+            verification="Confirm face visibility is at least 70% before rerunning the pipeline.",
+        )
     illumination = finite_float(normalized.get("illumination_score"))
-    add_evidence(
-        "Illumination",
-        "illumination_score",
-        illumination,
-        target=">= 55%",
-        within_target=None if illumination is None else illumination >= 0.55,
-        display="NA" if illumination is None else f"{illumination:.0%}",
-        reason="Illumination did not reach the evidence threshold.",
-        action="Use one even, front-facing light source and avoid backlight, deep shadow, or saturation.",
-        verification="Confirm the illumination score is at least 55% before interpretation.",
-    )
+    if not preflight_checks:
+        add_evidence(
+            "Illumination",
+            "illumination_score",
+            illumination,
+            target=">= 55%",
+            within_target=None if illumination is None else illumination >= 0.55,
+            display="NA" if illumination is None else f"{illumination:.0%}",
+            reason="Illumination did not reach the evidence threshold.",
+            action="Use one even, front-facing light source and avoid backlight, deep shadow, or saturation.",
+            verification="Confirm the illumination score is at least 55% before interpretation.",
+        )
     motion = finite_float(normalized.get("motion_score"))
-    add_evidence(
-        "Motion",
-        "motion_score",
-        motion,
-        target="<= 35%",
-        within_target=None if motion is None else motion <= 0.35,
-        display="NA" if motion is None else f"{motion:.0%}",
-        reason="Motion exceeded the policy limit and may contaminate regional traces.",
-        action="Stabilize the device and ask the participant to remain still and avoid speaking.",
-        verification="Confirm the motion score is no greater than 35% on the repeat recording.",
-    )
+    if not preflight_checks:
+        add_evidence(
+            "Motion",
+            "motion_score",
+            motion,
+            target="<= 35%",
+            within_target=None if motion is None else motion <= 0.35,
+            display="NA" if motion is None else f"{motion:.0%}",
+            reason="Motion exceeded the policy limit and may contaminate regional traces.",
+            action="Stabilize the device and ask the participant to remain still and avoid speaking.",
+            verification="Confirm the motion score is no greater than 35% on the repeat recording.",
+        )
     candidate_count = int(finite_float(normalized.get("candidate_count"), 0.0) or 0)
-    add_evidence(
-        "Candidate count",
-        "candidate_count",
-        float(candidate_count),
-        target=">= 3",
-        within_target=candidate_count >= 3,
-        display=str(candidate_count),
-        reason="Too few candidate branches were retained for comparison.",
-        action="Record a longer, stable window with the full face visible so multiple routes can form candidates.",
-        verification="Confirm at least three candidates are retained before automatic reporting is considered.",
-    )
-    if candidate_count > 0:
+    if not preflight_checks:
+        add_evidence(
+            "Candidate count",
+            "candidate_count",
+            float(candidate_count),
+            target=">= 3",
+            within_target=candidate_count >= 3,
+            display=str(candidate_count),
+            reason="Too few candidate branches were retained for comparison.",
+            action="Record a longer, stable window with the full face visible so multiple routes can form candidates.",
+            verification="Confirm at least three candidates are retained before automatic reporting is considered.",
+        )
+    if not preflight_checks and candidate_count > 0:
         agreement = finite_float(normalized.get("agreement_fraction"))
         add_evidence(
             "Candidate agreement",
@@ -648,7 +827,33 @@ def build_action_plan(case: dict[str, Any]) -> dict[str, Any]:
             action="Compare the half-rate and double-rate branches; do not force either branch into release.",
             verification="Confirm harmonic risk is no greater than 35% or retain the case for review.",
         )
-    if normalized.get("selected_candidate_hr_bpm") is not None:
+        window_consistency = finite_float(normalized.get("window_consistency_fraction"))
+        if window_consistency is not None:
+            add_evidence(
+                "Window consistency",
+                "window_consistency_fraction",
+                window_consistency,
+                target=">= 67%",
+                within_target=window_consistency >= (2 / 3),
+                display=f"{window_consistency:.0%}",
+                reason="Window-level HR estimates did not form the required stable majority.",
+                action="Review the window-level estimates and repeat the recording if the spread remains unresolved.",
+                verification="Confirm at least two thirds of analyzed windows agree within 10 BPM before release.",
+            )
+        if "competing_track_count" in normalized:
+            competing_tracks = int(finite_float(normalized.get("competing_track_count"), 0.0) or 0)
+            add_evidence(
+                "Competing candidate tracks",
+                "competing_track_count",
+                float(competing_tracks),
+                target="0",
+                within_target=competing_tracks == 0,
+                display=str(competing_tracks),
+                reason="More than one cross-window candidate track remained plausible under the documented margin.",
+                action="Keep the competing tracks linked to the case and route them to review.",
+                verification="Confirm that no competing track remains within the documented score margin before release.",
+            )
+    if not preflight_checks and normalized.get("selected_candidate_hr_bpm") is not None:
         confidence = finite_float(normalized.get("confidence"))
         add_evidence(
             "Selector support",
@@ -729,47 +934,95 @@ def video_preflight(path: str | Path, *, sample_frames: int = 48) -> dict[str, A
     if not capture.isOpened():
         raise RuntimeError(f"OpenCV could not open video: {video_path}")
     fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
-    frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    metadata_frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    frame_count = metadata_frame_count
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    sequential_sampling = frame_count <= 0
+    if sequential_sampling:
+        # Some valid AVI files omit the index OpenCV uses for CAP_PROP_FRAME_COUNT.
+        # Count decodable frames instead of misclassifying them as zero-duration input.
+        while capture.grab():
+            frame_count += 1
+        capture.release()
+        capture = cv2.VideoCapture(str(video_path))
+        if not capture.isOpened():
+            raise RuntimeError(f"OpenCV could not reopen video after frame counting: {video_path}")
     duration = frame_count / fps if fps > 0 else 0.0
     sample_indices = np.linspace(0, max(frame_count - 1, 0), num=max(1, min(sample_frames, frame_count)), dtype=int)
     brightness: list[float] = []
     motion: list[float] = []
     faces = 0
     previous = None
+    landmark_detector = None
+    detector_backend = None
+    detector_source = None
+    try:
+        from src.vision.face_mesh_roi import MediaPipeFaceLandmarkDetector
+
+        candidate_landmark_detector = MediaPipeFaceLandmarkDetector()
+        if candidate_landmark_detector.available:
+            landmark_detector = candidate_landmark_detector
+            detector_backend = candidate_landmark_detector.backend
+            detector_source = candidate_landmark_detector.model_path
+        else:
+            candidate_landmark_detector.close()
+    except Exception:
+        landmark_detector = None
     cascade_name = "haarcascade_frontalface_default.xml"
     cascade_candidates = [
         Path(getattr(cv2.data, "haarcascades", "")) / cascade_name,
         Path(__file__).resolve().parent / "assets" / cascade_name,
     ]
     detector = None
-    detector_source = None
-    for cascade_path in cascade_candidates:
-        if not cascade_path.is_file():
-            continue
-        candidate = cv2.CascadeClassifier(str(cascade_path))
-        if not candidate.empty():
-            detector = candidate
-            detector_source = str(cascade_path)
-            break
-    try:
-        for index in sample_indices:
-            capture.set(cv2.CAP_PROP_POS_FRAMES, int(index))
-            ok, frame = capture.read()
-            if not ok:
+    if landmark_detector is None:
+        for cascade_path in cascade_candidates:
+            if not cascade_path.is_file():
                 continue
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            brightness.append(float(gray.mean()))
-            small = cv2.resize(gray, (96, 72), interpolation=cv2.INTER_AREA)
-            if previous is not None:
-                motion.append(float(np.mean(cv2.absdiff(small, previous))))
-            previous = small
-            if detector is not None:
-                detected = detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(48, 48))
-                faces += int(len(detected) > 0)
+            candidate = cv2.CascadeClassifier(str(cascade_path))
+            if not candidate.empty():
+                detector = candidate
+                detector_backend = "opencv_haar_cascade"
+                detector_source = str(cascade_path)
+                break
+    def inspect_frame(frame: np.ndarray) -> None:
+        nonlocal faces, previous
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        brightness.append(float(gray.mean()))
+        small = cv2.resize(gray, (96, 72), interpolation=cv2.INTER_AREA)
+        if previous is not None:
+            motion.append(float(np.mean(cv2.absdiff(small, previous))))
+        previous = small
+        if landmark_detector is not None:
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            faces += int(landmark_detector.detect(rgb) is not None)
+        elif detector is not None:
+            detected = detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(48, 48))
+            faces += int(len(detected) > 0)
+
+    try:
+        if sequential_sampling:
+            targets = {int(index) for index in sample_indices}
+            last_target = max(targets, default=-1)
+            frame_index = 0
+            while frame_index <= last_target:
+                ok, frame = capture.read()
+                if not ok:
+                    break
+                if frame_index in targets:
+                    inspect_frame(frame)
+                frame_index += 1
+        else:
+            for index in sample_indices:
+                capture.set(cv2.CAP_PROP_POS_FRAMES, int(index))
+                ok, frame = capture.read()
+                if not ok:
+                    continue
+                inspect_frame(frame)
     finally:
         capture.release()
+        if landmark_detector is not None:
+            landmark_detector.close()
 
     sampled = max(1, len(brightness))
     brightness_mean = float(np.mean(brightness)) if brightness else 0.0
@@ -786,11 +1039,11 @@ def video_preflight(path: str | Path, *, sample_frames: int = 48) -> dict[str, A
             "face visibility",
             face_rate,
             "fraction",
-            pass_if=detector is not None and face_rate >= 0.70,
-            warn_if=detector is not None and face_rate >= 0.35,
+            pass_if=(landmark_detector is not None or detector is not None) and face_rate >= 0.70,
+            warn_if=(landmark_detector is not None or detector is not None) and face_rate >= 0.35,
             fail_message=(
                 "Center the full face and remove major occlusion."
-                if detector is not None
+                if landmark_detector is not None or detector is not None
                 else "Face-quality inspection is unavailable; reinstall the detector asset before analysis."
             ),
         ),
@@ -801,13 +1054,15 @@ def video_preflight(path: str | Path, *, sample_frames: int = 48) -> dict[str, A
         "file_name": video_path.name,
         "fps": round(fps, 3),
         "frame_count": frame_count,
+        "frame_count_source": "decoded_fallback" if sequential_sampling else "container_metadata",
         "width": width,
         "height": height,
         "duration_sec": round(duration, 3),
         "brightness_mean": round(brightness_mean, 3),
         "motion_mean": round(motion_mean, 3),
         "face_detection_rate": round(face_rate, 3),
-        "face_detector_available": detector is not None,
+        "face_detector_available": landmark_detector is not None or detector is not None,
+        "face_detector_backend": detector_backend,
         "face_detector_source": detector_source,
         "overall": overall,
         "checks": checks,
@@ -1037,6 +1292,347 @@ def case_from_runtime_failure(
     return ensure_output_contract(case)
 
 
+def aggregate_window_output(
+    windows: pd.DataFrame,
+    *,
+    tolerance_bpm: float = 10.0,
+) -> dict[str, Any]:
+    """Aggregate window-level outputs without letting the final window dominate."""
+
+    if windows.empty:
+        return {
+            "decision": "review",
+            "released_hr_bpm": None,
+            "selected_candidate_hr_bpm": None,
+            "review_reason": "no_analysis_window",
+            "representative": {},
+            "consistency_fraction": 0.0,
+            "stable_window_count": 0,
+            "total_window_count": 0,
+            "window_hr_median_bpm": None,
+            "window_hr_range_bpm": None,
+            "tolerance_bpm": tolerance_bpm,
+        }
+
+    ordered = windows.sort_values("window_id").reset_index(drop=True)
+    candidate_source = (
+        ordered["candidate_hr_bpm"]
+        if "candidate_hr_bpm" in ordered
+        else pd.Series(np.nan, index=ordered.index, dtype=float)
+    )
+    candidate_values = pd.to_numeric(candidate_source, errors="coerce")
+    finite_candidates = candidate_values[np.isfinite(candidate_values)]
+    candidate_median = float(np.median(finite_candidates)) if not finite_candidates.empty else None
+    representative = ordered.iloc[-1].to_dict()
+
+    releasable = ordered[
+        ordered.get("decision", pd.Series(index=ordered.index, dtype=object)).astype(str).eq("release")
+    ].copy()
+    release_source = (
+        releasable["product_hr_bpm"]
+        if "product_hr_bpm" in releasable
+        else pd.Series(np.nan, index=releasable.index, dtype=float)
+    )
+    release_values = pd.to_numeric(release_source, errors="coerce")
+    releasable = releasable[np.isfinite(release_values)].copy()
+    release_values = pd.to_numeric(releasable.get("product_hr_bpm"), errors="coerce")
+
+    total = int(len(ordered))
+    if len(releasable) != total or release_values.empty:
+        decision_source = ordered.get("decision", pd.Series("review", index=ordered.index, dtype=object))
+        failed = ordered[~decision_source.astype(str).eq("release")]
+        if not failed.empty:
+            representative = failed.iloc[0].to_dict()
+        failed_reasons = [
+            str(value)
+            for value in failed.get("refusal_reason", pd.Series(dtype=object)).tolist()
+            if str(value).strip() and str(value).strip().lower() != "accepted"
+        ]
+        review_reason = failed_reasons[0] if failed_reasons else "one_or_more_windows_not_releasable"
+        return {
+            "decision": "review",
+            "released_hr_bpm": None,
+            "selected_candidate_hr_bpm": candidate_median,
+            "review_reason": review_reason,
+            "representative": representative,
+            "consistency_fraction": float(len(releasable) / max(total, 1)),
+            "stable_window_count": int(len(releasable)),
+            "total_window_count": total,
+            "window_hr_median_bpm": candidate_median,
+            "window_hr_range_bpm": float(finite_candidates.max() - finite_candidates.min()) if len(finite_candidates) > 1 else 0.0,
+            "tolerance_bpm": tolerance_bpm,
+        }
+
+    center = float(np.median(release_values))
+    inlier_mask = (release_values - center).abs() <= tolerance_bpm
+    inliers = releasable.loc[inlier_mask].copy()
+    required = 1 if total == 1 else max(2, math.ceil(total * 2 / 3))
+    stable_count = int(len(inliers))
+    consistency = float(stable_count / total)
+    aggregate_hr = float(np.median(pd.to_numeric(inliers["product_hr_bpm"]))) if stable_count else center
+
+    distances = (pd.to_numeric(releasable["product_hr_bpm"]) - aggregate_hr).abs()
+    representative = releasable.loc[distances.idxmin()].to_dict()
+    passed = stable_count >= required
+    return {
+        "decision": "release" if passed else "review",
+        "released_hr_bpm": aggregate_hr if passed else None,
+        "selected_candidate_hr_bpm": aggregate_hr if passed else center,
+        "review_reason": "" if passed else "inter_window_hr_disagreement",
+        "representative": representative,
+        "consistency_fraction": consistency,
+        "stable_window_count": stable_count,
+        "total_window_count": total,
+        "window_hr_median_bpm": center,
+        "window_hr_range_bpm": float(release_values.max() - release_values.min()) if total > 1 else 0.0,
+        "tolerance_bpm": tolerance_bpm,
+    }
+
+
+def aggregate_candidate_tracks(
+    windows: pd.DataFrame,
+    clusters: pd.DataFrame,
+    *,
+    tolerance_bpm: float = 6.0,
+    ambiguity_margin: float = 0.20,
+) -> dict[str, Any]:
+    """Select a coherent cross-window candidate track without reference labels.
+
+    ``tolerance_bpm`` is the maximum full track spread, rather than a radius
+    that can silently permit twice that amount of temporal variation.
+    """
+
+    if windows.empty:
+        fallback = aggregate_window_output(windows)
+        fallback["track_diagnostics"] = []
+        fallback["selected_track_members"] = []
+        fallback["competing_track_count"] = 0
+        return fallback
+    if clusters.empty or "sample_id" not in clusters or "cluster_bpm" not in clusters:
+        fallback = aggregate_window_output(windows)
+        fallback.update(
+            {
+                "decision": "review",
+                "released_hr_bpm": None,
+                "selected_candidate_hr_bpm": None,
+                "review_reason": "no_candidate_generated",
+                "track_diagnostics": [],
+                "selected_track_members": [],
+                "competing_track_count": 0,
+            }
+        )
+        return fallback
+    fallback = aggregate_window_output(windows)
+
+    score_col = "roi_evidence_v2_score" if "roi_evidence_v2_score" in clusters else "roi_evidence_score"
+    gate_col = "passes_roi_evidence_v2_gate" if "passes_roi_evidence_v2_gate" in clusters else "passes_roi_evidence_gate"
+    working = clusters.copy()
+    if score_col not in working:
+        score_col = "_track_score"
+        working[score_col] = 0.0
+    if gate_col not in working:
+        gate_col = "_track_gate"
+        working[gate_col] = 0
+    working["cluster_bpm"] = pd.to_numeric(working["cluster_bpm"], errors="coerce")
+    working[score_col] = pd.to_numeric(working[score_col], errors="coerce").fillna(0.0)
+    gate_values = working[gate_col] if gate_col in working else pd.Series(0, index=working.index)
+    working[gate_col] = pd.to_numeric(gate_values, errors="coerce").fillna(0).astype(int)
+    working = working[np.isfinite(working["cluster_bpm"])].copy()
+    if working.empty:
+        fallback.update(
+            {
+                "decision": "review",
+                "released_hr_bpm": None,
+                "selected_candidate_hr_bpm": None,
+                "review_reason": "no_candidate_generated",
+                "track_diagnostics": [],
+                "selected_track_members": [],
+                "competing_track_count": 0,
+            }
+        )
+        return fallback
+
+    ordered_windows = windows.sort_values("window_id").reset_index(drop=True)
+    sample_ids = list(dict.fromkeys(str(value) for value in ordered_windows["sample_id"].tolist()))
+    groups = {sample_id: working[working["sample_id"].astype(str).eq(sample_id)] for sample_id in sample_ids}
+    selected_bpm_by_sample = {
+        str(row["sample_id"]): finite_float(row.get("candidate_hr_bpm"))
+        for _, row in ordered_windows.iterrows()
+    }
+    top_indices: dict[str, int | None] = {}
+    for sample_id, group in groups.items():
+        if group.empty:
+            top_indices[sample_id] = None
+            continue
+        selected_bpm = selected_bpm_by_sample.get(sample_id)
+        if selected_bpm is not None:
+            ranked = group.assign(_distance=(group["cluster_bpm"] - selected_bpm).abs()).sort_values(
+                ["_distance", gate_col, score_col], ascending=[True, False, False]
+            )
+        else:
+            ranked = group.sort_values([gate_col, score_col], ascending=[False, False])
+        top_indices[sample_id] = int(ranked.index[0])
+    seen: set[tuple[tuple[str, int], ...]] = set()
+    tracks: list[dict[str, Any]] = []
+    for _, anchor in working.iterrows():
+        anchor_bpm = float(anchor["cluster_bpm"])
+        members: list[dict[str, Any]] = []
+        signature_parts: list[tuple[str, int]] = []
+        for sample_id in sample_ids:
+            group = groups[sample_id]
+            nearby = group[(group["cluster_bpm"] - anchor_bpm).abs() <= tolerance_bpm]
+            if nearby.empty:
+                continue
+            nearby = nearby.assign(_distance=(nearby["cluster_bpm"] - anchor_bpm).abs()).sort_values(
+                [gate_col, "_distance", score_col], ascending=[False, True, False]
+            )
+            member_index = int(nearby.index[0])
+            member = nearby.loc[member_index]
+            signature_parts.append((sample_id, member_index))
+            members.append(
+                {
+                    "sample_id": sample_id,
+                    "cluster_index": member_index,
+                    "candidate_bpm": float(member["cluster_bpm"]),
+                    "score": float(member[score_col]),
+                    "gate_passed": bool(member[gate_col]),
+                    "top_ranked": member_index == top_indices[sample_id],
+                    "methods": str(member.get("methods", "")),
+                    "regions": str(member.get("regions", "")),
+                }
+            )
+        signature = tuple(signature_parts)
+        if not signature or signature in seen:
+            continue
+        seen.add(signature)
+        bpms = [item["candidate_bpm"] for item in members]
+        total = len(sample_ids)
+        coverage_count = len(members)
+        gate_count = sum(item["gate_passed"] for item in members)
+        top_count = sum(item["top_ranked"] for item in members)
+        coverage_fraction = float(coverage_count / total)
+        mean_score = float(np.mean([item["score"] for item in members]))
+        spread_bpm = float(max(bpms) - min(bpms)) if len(bpms) > 1 else 0.0
+        tracks.append(
+            {
+                "track_bpm": float(np.median(bpms)),
+                "coverage_count": coverage_count,
+                "coverage_fraction": coverage_fraction,
+                "gate_count": gate_count,
+                "gate_fraction": float(gate_count / total),
+                "top_count": top_count,
+                "top_fraction": float(top_count / total),
+                "mean_score": mean_score,
+                "support_score": mean_score * coverage_fraction,
+                "spread_bpm": spread_bpm,
+                "coherent": spread_bpm <= tolerance_bpm + 1e-9,
+                "members": members,
+            }
+        )
+
+    total = len(sample_ids)
+    required = 1 if total == 1 else max(2, math.ceil(total * 2 / 3))
+    tracks.sort(
+        key=lambda item: (
+            item["top_fraction"],
+            item["gate_fraction"],
+            item["coverage_fraction"],
+            item["support_score"],
+            -item["spread_bpm"],
+        ),
+        reverse=True,
+    )
+    eligible = [
+        item
+        for item in tracks
+        if item["coverage_count"] == total
+        and item["gate_count"] >= required
+        and item["top_count"] >= required
+        and item["coherent"]
+    ]
+    chosen = eligible[0] if eligible else None
+    if chosen is None:
+        reason = (
+            str(fallback.get("review_reason") or "one_or_more_windows_not_releasable")
+            if not ordered_windows["decision"].astype(str).eq("release").all()
+            else "no_stable_cross_window_candidate_track"
+        )
+        fallback.update(
+            {
+                "decision": "review",
+                "released_hr_bpm": None,
+                "selected_candidate_hr_bpm": None,
+                "review_reason": reason,
+                "track_diagnostics": [
+                    {key: value for key, value in item.items() if key != "members"}
+                    for item in tracks[:8]
+                ],
+                "selected_track_members": [],
+                "competing_track_count": 0,
+            }
+        )
+        return fallback
+
+    all_windows_release = ordered_windows["decision"].astype(str).eq("release").all()
+    competitors: list[dict[str, Any]] = []
+    if total > 1:
+        competitors = [
+            item
+            for item in tracks
+            if item is not chosen
+            and item["coverage_count"] >= required
+            and item["gate_count"] >= required
+            and item["coherent"]
+            and abs(item["track_bpm"] - chosen["track_bpm"]) > tolerance_bpm
+            and item["mean_score"] >= chosen["mean_score"] - ambiguity_margin
+        ]
+
+    passed = chosen in eligible and all_windows_release and not competitors
+    if not all_windows_release:
+        reason = str(fallback.get("review_reason") or "one_or_more_windows_not_releasable")
+    elif competitors:
+        reason = "competing_cross_window_candidate_tracks"
+    else:
+        reason = ""
+
+    representative_member = max(chosen["members"], key=lambda item: item["score"])
+    representative = {
+        "roi_evidence_v2_score": representative_member["score"],
+        "max_power_method": representative_member["methods"],
+        "max_power_region": representative_member["regions"],
+        "refusal_reason": reason,
+    }
+    diagnostics = [
+        {
+            key: value
+            for key, value in item.items()
+            if key != "members"
+        }
+        for item in tracks[:8]
+    ]
+    return {
+        "decision": "release" if passed else "review",
+        "released_hr_bpm": chosen["track_bpm"] if passed else None,
+        "selected_candidate_hr_bpm": chosen["track_bpm"],
+        "review_reason": reason,
+        "representative": representative,
+        "consistency_fraction": min(
+            chosen["coverage_fraction"],
+            chosen["gate_fraction"],
+            chosen["top_fraction"],
+        ),
+        "stable_window_count": sum(member["gate_passed"] for member in chosen["members"]),
+        "total_window_count": total,
+        "window_hr_median_bpm": chosen["track_bpm"],
+        "window_hr_range_bpm": chosen["spread_bpm"],
+        "tolerance_bpm": tolerance_bpm,
+        "max_track_spread_bpm": tolerance_bpm,
+        "track_diagnostics": diagnostics,
+        "selected_track_members": chosen["members"],
+        "competing_track_count": len(competitors),
+    }
+
+
 def run_uploaded_video(
     path: str | Path,
     *,
@@ -1062,13 +1658,15 @@ def run_uploaded_video(
         frame_stride=2 if float(preflight["fps"]) >= 24 else 1,
         min_window_sec=8.0,
         use_mediapipe=use_mediapipe,
+        fallback_detection_rate=float(preflight["face_detection_rate"]),
     )
     result = run_adult_hr_video(path, config=config)
     windows = result.windows.sort_values("window_id") if not result.windows.empty else result.windows
-    last = windows.iloc[-1].to_dict() if not windows.empty else {}
-    decision = str(last.get("decision", "review"))
-    released_hr = finite_float(last.get("product_hr_bpm")) if decision == "release" else None
-    candidate_hr = finite_float(last.get("candidate_hr_bpm"))
+    aggregate = aggregate_candidate_tracks(windows, result.clusters)
+    representative = aggregate["representative"]
+    decision = str(aggregate["decision"])
+    released_hr = finite_float(aggregate.get("released_hr_bpm"))
+    candidate_hr = finite_float(aggregate.get("selected_candidate_hr_bpm"))
     clusters = result.clusters.copy()
     candidates: list[dict[str, Any]] = []
     if not clusters.empty:
@@ -1087,7 +1685,10 @@ def run_uploaded_video(
             )
 
     detection = finite_float(result.metadata.get("detector_meta", {}).get("detection_rate"), preflight["face_detection_rate"])
-    agreement = finite_float(last.get("roi_evidence_v2_score"), finite_float(last.get("roi_evidence_score"), 0.0))
+    agreement = finite_float(
+        representative.get("roi_evidence_v2_score"),
+        finite_float(representative.get("roi_evidence_score"), 0.0),
+    )
     case = {
         "schema_version": SCHEMA_VERSION,
         "case_id": _case_id("upload"),
@@ -1101,7 +1702,7 @@ def run_uploaded_video(
         "priority": "routine" if decision == "release" else "high",
         "released_hr_bpm": released_hr,
         "selected_candidate_hr_bpm": candidate_hr,
-        "confidence": finite_float(last.get("roi_evidence_v2_score"), finite_float(last.get("roi_evidence_score"), 0.0)),
+        "confidence": agreement,
         "quality_score": float(np.clip((float(preflight["face_detection_rate"]) + (1 - min(float(preflight["motion_mean"]) / 30, 1))) / 2, 0, 1)),
         "snr_db": None,
         "face_coverage": detection,
@@ -1109,15 +1710,45 @@ def run_uploaded_video(
         "motion_score": float(np.clip(float(preflight["motion_mean"]) / 30.0, 0, 1)),
         "candidate_count": int(result.metadata.get("n_candidates", len(result.candidates))),
         "agreement_fraction": agreement,
+        "window_consistency_fraction": aggregate["consistency_fraction"],
+        "window_hr_range_bpm": aggregate["window_hr_range_bpm"],
+        "competing_track_count": aggregate.get("competing_track_count", 0),
         "harmonic_risk": None,
-        "selected_method": str(last.get("max_power_method", "multi-route selector")),
-        "selected_region": str(last.get("max_power_region", "multi-ROI")),
-        "review_reason": str(last.get("refusal_reason", "")) if decision != "release" else "",
-        "recommended_action": "Retain the evidence packet with the reported estimate." if decision == "release" else "Inspect candidate evidence or repeat the recording.",
-        "trend_bpm": [finite_float(value) for value in windows.get("product_hr_bpm", pd.Series(dtype=float)).tolist() if finite_float(value) is not None],
+        "selected_method": str(representative.get("max_power_method", "multi-route selector")),
+        "selected_region": str(representative.get("max_power_region", "multi-ROI")),
+        "review_reason": str(aggregate.get("review_reason", "")) if decision != "release" else "",
+        "recommended_action": (
+            "Retain the evidence packet with the reported estimate."
+            if decision == "release"
+            else "Inspect window-level and candidate evidence or repeat the recording under stable conditions."
+        ),
+        "trend_bpm": [
+            finite_float(item.get("candidate_bpm"))
+            for item in aggregate.get("selected_track_members", [])
+            if finite_float(item.get("candidate_bpm")) is not None
+        ],
         "candidates": candidates,
         "preflight": preflight,
         "window_results": json_safe(windows.to_dict("records")),
+        "runtime_metadata": json_safe(
+            {
+                "detector_backend": result.metadata.get("detector_meta", {}).get("detector_backend", "unknown"),
+                "fallback_static_roi": result.metadata.get("detector_meta", {}).get("fallback_static_roi", 0.0),
+                "analysis_fps": result.metadata.get("analysis_fps"),
+                "max_source_frames": result.metadata.get("max_source_frames"),
+                "max_analysis_frames": result.metadata.get("max_analysis_frames"),
+                "window_aggregation": {
+                    "tolerance_bpm": aggregate["tolerance_bpm"],
+                    "stable_window_count": aggregate["stable_window_count"],
+                    "total_window_count": aggregate["total_window_count"],
+                    "consistency_fraction": aggregate["consistency_fraction"],
+                    "window_hr_median_bpm": aggregate["window_hr_median_bpm"],
+                    "window_hr_range_bpm": aggregate["window_hr_range_bpm"],
+                    "competing_track_count": aggregate.get("competing_track_count", 0),
+                    "track_diagnostics": aggregate.get("track_diagnostics", []),
+                },
+            }
+        ),
         "policy_version": POLICY_VERSION,
         "model_version": MODEL_VERSION,
         "claim_boundary": CLAIM_BOUNDARY,
@@ -1146,16 +1777,59 @@ def build_report_payload(
     }
 
 
+def _preflight_report_rows(case: dict[str, Any]) -> list[dict[str, str]]:
+    preflight = case.get("preflight") or {}
+    checks = preflight.get("checks") or []
+    if str(case.get("decision")) != "retake" or not checks:
+        return []
+
+    rows: list[dict[str, str]] = []
+    for item in checks:
+        value = finite_float(item.get("value"))
+        unit = str(item.get("unit") or "")
+        if unit == "fraction" and value is not None:
+            observed = f"{value:.0%}"
+        elif value is None:
+            observed = "NA"
+        else:
+            observed = f"{value:.3f}".rstrip("0").rstrip(".")
+            if unit:
+                observed = f"{observed} {unit}"
+        rows.append(
+            {
+                "check": str(item.get("check") or "acquisition check"),
+                "observed": observed,
+                "status": str(item.get("status") or "fail").lower(),
+            }
+        )
+    rows.append(
+        {
+            "check": "Candidate construction",
+            "observed": "not entered",
+            "status": "not evaluated",
+        }
+    )
+    return rows
+
+
 def build_report_markdown(payload: dict[str, Any], *, language: str = "en") -> str:
     case = payload["case"]
     attribution = payload["attribution"]
     zh = language.lower().startswith("zh")
     text = lambda value: localize_console_text(value, language=language)
+    preflight_overall = str((case.get("preflight") or {}).get("overall") or "").lower()
+    if str(case.get("decision")) == "retake" or preflight_overall == "fail":
+        acquisition_gate = "未通过" if zh else "Not passed"
+    elif preflight_overall == "warn":
+        acquisition_gate = "通过但有警告" if zh else "Passed with warnings"
+    else:
+        acquisition_gate = "通过" if zh else "Passed"
     labels = {
         "title": "VitalsSight 证据报告" if zh else "VitalsSight Evidence Report",
         "summary": "结果摘要" if zh else "Result summary",
         "interpretation": "结果解释" if zh else "Operational interpretation",
         "quality": "采集质量" if zh else "Acquisition quality",
+        "runtime": "实现与运行溯源" if zh else "Implementation provenance",
         "action_evidence": "建议依据" if zh else "Evidence supporting the recommendation",
         "workflow": "建议操作流程" if zh else "Recommended workflow",
         "attribution": "证据与策略归因" if zh else "Evidence and policy attribution",
@@ -1164,6 +1838,7 @@ def build_report_markdown(payload: dict[str, Any], *, language: str = "en") -> s
         "audit": "审计记录" if zh else "Audit trail",
         "boundary": "证据边界" if zh else "Evidence boundary",
     }
+    preflight_rows = _preflight_report_rows(case)
     lines = [
         f"# {labels['title']}",
         f"- **{'报告版本' if zh else 'Report version'}:** {payload['report_version']}",
@@ -1182,18 +1857,54 @@ def build_report_markdown(payload: dict[str, Any], *, language: str = "en") -> s
         f"- {'预期结果' if zh else 'Expected outcome'}: {text(payload['action_plan']['expected_outcome'])}",
         "",
         f"## {labels['quality']}",
-        f"- {'人脸覆盖' if zh else 'Face coverage'}: {_fmt_percent(case.get('face_coverage'))}",
-        f"- {'光照分数' if zh else 'Illumination score'}: {_fmt_percent(case.get('illumination_score'))}",
-        f"- {'运动分数' if zh else 'Motion score'}: {_fmt_percent(case.get('motion_score'))}",
-        f"- {'质量分数' if zh else 'Quality score'}: {_fmt_percent(case.get('quality_score'))}",
-        "",
-        f"## {labels['action_evidence']}",
-        f"| {'信号' if zh else 'Signal'} | {'观测值' if zh else 'Observed'} | {'目标' if zh else 'Target'} | {'状态' if zh else 'State'} | {'与建议的关系' if zh else 'Why it matters'} |",
-        "|---|---:|---:|---|---|",
+        f"- {'采集门控' if zh else 'Acquisition gate'}: {acquisition_gate}",
     ]
+    if preflight_rows:
+        lines.extend(
+            [
+                "",
+                f"| {'检查项' if zh else 'Check'} | {'观测值' if zh else 'Observed'} | {'状态' if zh else 'State'} |",
+                "|---|---:|---|",
+            ]
+        )
+        for item in preflight_rows:
+            lines.append(f"| {text(item['check'])} | {text(item['observed'])} | {text(item['status'])} |")
+        lines.extend(
+            [
+                "",
+                text("Candidate construction was not entered because preflight failed; candidate count is therefore not an acquisition failure."),
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"- {'人脸覆盖' if zh else 'Face coverage'}: {_fmt_percent(case.get('face_coverage'))}",
+                f"- {'光照分数' if zh else 'Illumination score'}: {_fmt_percent(case.get('illumination_score'))}",
+                f"- {'运动分数' if zh else 'Motion score'}: {_fmt_percent(case.get('motion_score'))}",
+                f"- {'质量分数' if zh else 'Quality score'}: {_fmt_percent(case.get('quality_score'))}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            f"## {labels['runtime']}",
+            f"- {'模型版本' if zh else 'Model version'}: {case.get('model_version') or 'N/A'}",
+            f"- {'策略版本' if zh else 'Policy version'}: {case.get('policy_version') or 'N/A'}",
+            f"- {'人脸检测后端' if zh else 'Face detector backend'}: "
+            f"{(case.get('runtime_metadata') or {}).get('detector_backend') or (case.get('preflight') or {}).get('face_detector_backend') or 'N/A'}",
+            f"- {'分析采样率' if zh else 'Analysis sampling rate'}: "
+            f"{_fmt_number((case.get('runtime_metadata') or {}).get('analysis_fps')) + ' fps' if (case.get('runtime_metadata') or {}).get('analysis_fps') is not None else 'N/A'}",
+            f"- {'分析帧预算' if zh else 'Analysis frame budget'}: "
+            f"{_fmt_number((case.get('runtime_metadata') or {}).get('max_analysis_frames'))}",
+            "",
+            f"## {labels['action_evidence']}",
+            f"| {'信号' if zh else 'Signal'} | {'观测值' if zh else 'Observed'} | {'目标' if zh else 'Target'} | {'状态' if zh else 'State'} | {'与建议的关系' if zh else 'Why it matters'} |",
+            "|---|---:|---:|---|---|",
+        ]
+    )
     for item in payload["action_plan"]["evidence"]:
         lines.append(
-            f"| {text(item['signal'])} | {item['observed']} | {item['target']} | "
+            f"| {text(item['signal'])} | {text(item['observed'])} | {text(item['target'])} | "
             f"{text(item['status'])} | {text(item['reason'])} |"
         )
     lines.extend(
@@ -1215,7 +1926,7 @@ def build_report_markdown(payload: dict[str, Any], *, language: str = "en") -> s
             f"- **{'仍未解决时' if zh else 'If unresolved'}:** {text(payload['action_plan']['escalation'])}",
             f"- **{'使用边界' if zh else 'Guidance boundary'}:** {text(payload['action_plan']['boundary'])}",
             "",
-        f"## {labels['attribution']}",
+            f"## {labels['attribution']}",
         ]
     )
     for factor in attribution["all_factors"]:
@@ -1352,15 +2063,56 @@ def build_report_pdf(payload: dict[str, Any], *, language: str = "en") -> bytes:
     story.append(Paragraph("结果解释" if zh else "Operational interpretation", heading))
     story.append(_report_table(interpretation_data, body, colors))
 
+    preflight_rows = _preflight_report_rows(case)
     quality_data = [
-        ["人脸覆盖" if zh else "Face coverage", _fmt_percent(case.get("face_coverage"))],
-        ["光照" if zh else "Illumination", _fmt_percent(case.get("illumination_score"))],
-        ["运动" if zh else "Motion", _fmt_percent(case.get("motion_score"))],
-        ["质量" if zh else "Quality", _fmt_percent(case.get("quality_score"))],
-        ["候选数量" if zh else "Candidate count", str(case.get("candidate_count", 0))],
+        [
+            "采集门控" if zh else "Acquisition gate",
+            (
+                ("未通过" if zh else "Not passed")
+                if str(case.get("decision")) == "retake" or str((case.get("preflight") or {}).get("overall") or "").lower() == "fail"
+                else (
+                    ("通过但有警告" if zh else "Passed with warnings")
+                    if str((case.get("preflight") or {}).get("overall") or "").lower() == "warn"
+                    else ("通过" if zh else "Passed")
+                )
+            ),
+        ],
     ]
+    if preflight_rows:
+        quality_data.extend(
+            [text(item["check"]), f"{text(item['observed'])} ({text(item['status'])})"]
+            for item in preflight_rows
+        )
+    else:
+        quality_data.extend(
+            [
+                ["人脸覆盖" if zh else "Face coverage", _fmt_percent(case.get("face_coverage"))],
+                ["光照" if zh else "Illumination", _fmt_percent(case.get("illumination_score"))],
+                ["运动" if zh else "Motion", _fmt_percent(case.get("motion_score"))],
+                ["质量" if zh else "Quality", _fmt_percent(case.get("quality_score"))],
+                ["候选数量" if zh else "Candidate count", str(case.get("candidate_count", 0))],
+            ]
+        )
     story.append(Paragraph("采集质量" if zh else "Acquisition quality", heading))
     story.append(_report_table(quality_data, body, colors))
+
+    runtime = case.get("runtime_metadata") or {}
+    preflight = case.get("preflight") or {}
+    runtime_data = [
+        ["模型版本" if zh else "Model version", str(case.get("model_version") or "N/A")],
+        ["策略版本" if zh else "Policy version", str(case.get("policy_version") or "N/A")],
+        [
+            "人脸检测后端" if zh else "Face detector backend",
+            str(runtime.get("detector_backend") or preflight.get("face_detector_backend") or "N/A"),
+        ],
+        [
+            "分析采样率" if zh else "Analysis sampling rate",
+            f"{_fmt_number(runtime.get('analysis_fps'))} fps" if runtime.get("analysis_fps") is not None else "N/A",
+        ],
+        ["分析帧预算" if zh else "Analysis frame budget", _fmt_number(runtime.get("max_analysis_frames"))],
+    ]
+    story.append(Paragraph("实现与运行溯源" if zh else "Implementation provenance", heading))
+    story.append(_report_table(runtime_data, body, colors))
 
     story.append(Paragraph("建议依据" if zh else "Evidence supporting the recommendation", heading))
     action_evidence = [[
@@ -1394,10 +2146,11 @@ def build_report_pdf(payload: dict[str, Any], *, language: str = "en") -> bytes:
     story.append(Paragraph("证据与策略归因" if zh else "Evidence and policy attribution", heading))
     attr_data = [["因素" if zh else "Factor", "观测值" if zh else "Observed", "方向" if zh else "Direction", "理由" if zh else "Reason"]]
     for item in payload["attribution"]["all_factors"]:
+        observed = text(item["observed"]) if isinstance(item["observed"], str) else _fmt_number(item["observed"])
         attr_data.append(
             [
                 text(item["factor"]),
-                _fmt_number(item["observed"]),
+                observed,
                 text(item["status"]),
                 text(item["reason"]),
             ]

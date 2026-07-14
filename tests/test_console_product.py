@@ -5,17 +5,22 @@ import os
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+from src.data.video_io import get_video_metadata
 from src.product.console_api import create_app
 from src.product.console_service import (
     ATTRIBUTION_BOUNDARY,
+    aggregate_candidate_tracks,
+    aggregate_window_output,
     build_action_plan,
     build_attribution,
     build_report_markdown,
     build_report_payload,
     build_report_pdf,
+    case_from_preflight,
     case_from_runtime_failure,
     case_quality_snapshot,
     ensure_output_contract,
@@ -82,6 +87,68 @@ def test_report_is_valid_pdf(tmp_path: Path) -> None:
     pdf = build_report_pdf(payload)
     assert pdf.startswith(b"%PDF")
     assert len(pdf) > 2000
+
+
+def test_retake_report_distinguishes_gate_status_from_quality_score() -> None:
+    case = make_demo_cases()[2]
+    case["decision"] = "retake"
+    case["quality_score"] = 1.0
+    case["preflight"] = {"overall": "fail"}
+
+    payload = build_report_payload(case)
+    markdown = build_report_markdown(payload)
+
+    assert "Acquisition gate: Not passed" in markdown
+    assert "Quality score: 100%" in markdown
+
+
+def test_preflight_retake_report_does_not_invent_candidate_or_illumination_failures() -> None:
+    preflight = {
+        "file_name": "short_release_fixture.avi",
+        "fps": 30.0,
+        "frame_count": 151,
+        "width": 640,
+        "height": 480,
+        "duration_sec": 5.033,
+        "brightness_mean": 203.801,
+        "motion_mean": 1.912,
+        "face_detection_rate": 1.0,
+        "face_detector_available": True,
+        "face_detector_backend": "mediapipe_tasks",
+        "overall": "fail",
+        "checks": [
+            {
+                "check": "duration",
+                "value": 5.033,
+                "unit": "s",
+                "status": "fail",
+                "action": "Record at least 8 seconds; 20-30 seconds is preferred.",
+            },
+            {"check": "frame rate", "value": 30.0, "unit": "fps", "status": "pass", "action": "No action required."},
+            {"check": "resolution", "value": 480.0, "unit": "px short edge", "status": "pass", "action": "No action required."},
+            {"check": "illumination", "value": 203.801, "unit": "luma", "status": "pass", "action": "No action required."},
+            {"check": "motion", "value": 1.912, "unit": "mean frame delta", "status": "pass", "action": "No action required."},
+            {"check": "face visibility", "value": 1.0, "unit": "fraction", "status": "pass", "action": "No action required."},
+        ],
+    }
+    case = case_from_preflight(
+        preflight,
+        purpose="workflow_validation",
+        retention_policy="delete_after_analysis",
+    )
+    payload = build_report_payload(case)
+    plan = payload["action_plan"]
+    markdown = build_report_markdown(payload)
+    chinese = build_report_markdown(payload, language="zh")
+
+    assert [item["source_field"] for item in plan["steps"]] == ["preflight.checks.duration"]
+    assert "illumination | 203.801 luma | pass" in markdown
+    assert "Candidate construction | not entered | not evaluated" in markdown
+    assert "candidate count is therefore not an acquisition failure" in markdown
+    assert "Illumination score: 41%" not in markdown
+    assert "Candidate count | 0" not in markdown
+    assert "候选构建 | 未进入 | 未评估" in chinese
+    assert build_report_pdf(payload).startswith(b"%PDF")
 
 
 def test_demo_quality_snapshots_cover_pass_warn_and_fail() -> None:
@@ -172,9 +239,215 @@ def test_report_v2_contains_evidence_to_action_chain() -> None:
     assert payload["action_plan"]["evidence"]
     assert "## Evidence supporting the recommendation" in report
     assert "## Recommended workflow" in report
+    assert "## Implementation provenance" in report
+    assert "Model version" in report
+    assert "Policy version" in report
     assert "| Motion | 61% | <= 35% | triggered |" in report
     assert "## 建议依据" in chinese
     assert "## 建议操作流程" in chinese
+    assert "## 实现与运行溯源" in chinese
+
+
+def test_window_aggregation_releases_only_a_stable_majority() -> None:
+    windows = pd.DataFrame(
+        [
+            {"window_id": 0, "decision": "release", "product_hr_bpm": 75.1, "candidate_hr_bpm": 75.1},
+            {"window_id": 1, "decision": "release", "product_hr_bpm": 60.1, "candidate_hr_bpm": 60.1},
+            {"window_id": 2, "decision": "release", "product_hr_bpm": 71.8, "candidate_hr_bpm": 71.8},
+        ]
+    )
+
+    result = aggregate_window_output(windows)
+
+    assert result["decision"] == "release"
+    assert result["released_hr_bpm"] == pytest.approx(73.45)
+    assert result["stable_window_count"] == 2
+    assert result["consistency_fraction"] == pytest.approx(2 / 3)
+
+
+def test_window_aggregation_withholds_divergent_release_windows() -> None:
+    windows = pd.DataFrame(
+        [
+            {"window_id": 0, "decision": "release", "product_hr_bpm": 112.6, "candidate_hr_bpm": 112.6},
+            {"window_id": 1, "decision": "release", "product_hr_bpm": 90.1, "candidate_hr_bpm": 90.1},
+            {"window_id": 2, "decision": "release", "product_hr_bpm": 59.8, "candidate_hr_bpm": 59.8},
+        ]
+    )
+
+    result = aggregate_window_output(windows)
+
+    assert result["decision"] == "review"
+    assert result["released_hr_bpm"] is None
+    assert result["selected_candidate_hr_bpm"] == pytest.approx(90.1)
+    assert result["review_reason"] == "inter_window_hr_disagreement"
+    assert result["consistency_fraction"] == pytest.approx(1 / 3)
+
+
+def test_candidate_track_aggregation_releases_one_dominant_track() -> None:
+    windows = pd.DataFrame(
+        [
+            {"sample_id": "s0", "window_id": 0, "decision": "release", "product_hr_bpm": 75.0, "candidate_hr_bpm": 75.0},
+            {"sample_id": "s1", "window_id": 1, "decision": "release", "product_hr_bpm": 76.0, "candidate_hr_bpm": 76.0},
+            {"sample_id": "s2", "window_id": 2, "decision": "release", "product_hr_bpm": 74.0, "candidate_hr_bpm": 74.0},
+        ]
+    )
+    clusters = pd.DataFrame(
+        [
+            {"sample_id": "s0", "cluster_bpm": 75.0, "roi_evidence_v2_score": 0.90, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s0", "cluster_bpm": 120.0, "roi_evidence_v2_score": 0.40, "passes_roi_evidence_v2_gate": 0},
+            {"sample_id": "s1", "cluster_bpm": 76.0, "roi_evidence_v2_score": 0.80, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s1", "cluster_bpm": 119.0, "roi_evidence_v2_score": 0.35, "passes_roi_evidence_v2_gate": 0},
+            {"sample_id": "s2", "cluster_bpm": 74.0, "roi_evidence_v2_score": 0.95, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s2", "cluster_bpm": 121.0, "roi_evidence_v2_score": 0.30, "passes_roi_evidence_v2_gate": 0},
+        ]
+    )
+
+    result = aggregate_candidate_tracks(windows, clusters)
+
+    assert result["decision"] == "release"
+    assert result["released_hr_bpm"] == pytest.approx(75.0)
+    assert result["competing_track_count"] == 0
+    assert result["consistency_fraction"] == pytest.approx(1.0)
+
+
+def test_candidate_track_aggregation_withholds_similarly_supported_competitor() -> None:
+    windows = pd.DataFrame(
+        [
+            {"sample_id": "s0", "window_id": 0, "decision": "release", "product_hr_bpm": 80.0, "candidate_hr_bpm": 80.0},
+            {"sample_id": "s1", "window_id": 1, "decision": "release", "product_hr_bpm": 81.0, "candidate_hr_bpm": 81.0},
+            {"sample_id": "s2", "window_id": 2, "decision": "release", "product_hr_bpm": 79.0, "candidate_hr_bpm": 79.0},
+        ]
+    )
+    clusters = pd.DataFrame(
+        [
+            {"sample_id": "s0", "cluster_bpm": 80.0, "roi_evidence_v2_score": 0.90, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s0", "cluster_bpm": 102.0, "roi_evidence_v2_score": 0.80, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s1", "cluster_bpm": 81.0, "roi_evidence_v2_score": 1.00, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s1", "cluster_bpm": 101.0, "roi_evidence_v2_score": 0.85, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s2", "cluster_bpm": 79.0, "roi_evidence_v2_score": 0.95, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s2", "cluster_bpm": 103.0, "roi_evidence_v2_score": 0.82, "passes_roi_evidence_v2_gate": 1},
+        ]
+    )
+
+    result = aggregate_candidate_tracks(windows, clusters)
+
+    assert result["decision"] == "review"
+    assert result["released_hr_bpm"] is None
+    assert result["review_reason"] == "competing_cross_window_candidate_tracks"
+    assert result["competing_track_count"] >= 1
+
+
+def test_candidate_track_aggregation_does_not_promote_lower_support_branch() -> None:
+    windows = pd.DataFrame(
+        [
+            {"sample_id": "s0", "window_id": 0, "decision": "release", "product_hr_bpm": 75.0, "candidate_hr_bpm": 75.0},
+            {"sample_id": "s1", "window_id": 1, "decision": "release", "product_hr_bpm": 60.0, "candidate_hr_bpm": 60.0},
+            {"sample_id": "s2", "window_id": 2, "decision": "release", "product_hr_bpm": 72.0, "candidate_hr_bpm": 72.0},
+        ]
+    )
+    clusters = pd.DataFrame(
+        [
+            {"sample_id": "s0", "cluster_bpm": 75.0, "roi_evidence_v2_score": 1.00, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s0", "cluster_bpm": 60.0, "roi_evidence_v2_score": 0.80, "passes_roi_evidence_v2_gate": 0},
+            {"sample_id": "s1", "cluster_bpm": 76.0, "roi_evidence_v2_score": 0.90, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s1", "cluster_bpm": 60.0, "roi_evidence_v2_score": 1.00, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s2", "cluster_bpm": 72.0, "roi_evidence_v2_score": 0.95, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s2", "cluster_bpm": 61.0, "roi_evidence_v2_score": 0.70, "passes_roi_evidence_v2_gate": 0},
+        ]
+    )
+
+    result = aggregate_candidate_tracks(windows, clusters)
+
+    assert result["decision"] == "release"
+    assert result["released_hr_bpm"] == pytest.approx(75.0)
+    assert result["competing_track_count"] == 0
+
+
+def test_candidate_track_aggregation_counts_majority_coverage_competitor() -> None:
+    windows = pd.DataFrame(
+        [
+            {"sample_id": "s0", "window_id": 0, "decision": "release", "product_hr_bpm": 80.0, "candidate_hr_bpm": 80.0},
+            {"sample_id": "s1", "window_id": 1, "decision": "release", "product_hr_bpm": 81.0, "candidate_hr_bpm": 81.0},
+            {"sample_id": "s2", "window_id": 2, "decision": "release", "product_hr_bpm": 79.0, "candidate_hr_bpm": 79.0},
+        ]
+    )
+    clusters = pd.DataFrame(
+        [
+            {"sample_id": "s0", "cluster_bpm": 80.0, "roi_evidence_v2_score": 0.90, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s0", "cluster_bpm": 102.0, "roi_evidence_v2_score": 0.88, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s1", "cluster_bpm": 81.0, "roi_evidence_v2_score": 0.90, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s1", "cluster_bpm": 101.0, "roi_evidence_v2_score": 0.88, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s2", "cluster_bpm": 79.0, "roi_evidence_v2_score": 0.90, "passes_roi_evidence_v2_gate": 1},
+        ]
+    )
+
+    result = aggregate_candidate_tracks(windows, clusters)
+
+    assert result["decision"] == "review"
+    assert result["review_reason"] == "competing_cross_window_candidate_tracks"
+    assert result["competing_track_count"] >= 1
+
+
+def test_candidate_track_aggregation_handles_empty_candidates() -> None:
+    windows = pd.DataFrame(
+        [{"sample_id": "s0", "window_id": 0, "decision": "review", "refusal_reason": "no_selected_cluster"}]
+    )
+
+    result = aggregate_candidate_tracks(windows, pd.DataFrame())
+
+    assert result["decision"] == "review"
+    assert result["released_hr_bpm"] is None
+    assert result["selected_candidate_hr_bpm"] is None
+    assert result["review_reason"] == "no_candidate_generated"
+
+
+def test_window_aggregation_uses_failed_window_reason() -> None:
+    windows = pd.DataFrame(
+        [
+            {"window_id": 0, "decision": "release", "product_hr_bpm": 75.0, "candidate_hr_bpm": 75.0, "refusal_reason": "accepted"},
+            {"window_id": 1, "decision": "review", "product_hr_bpm": float("nan"), "candidate_hr_bpm": 76.0, "refusal_reason": "low_face_detection_rate"},
+            {"window_id": 2, "decision": "release", "product_hr_bpm": 74.0, "candidate_hr_bpm": 74.0, "refusal_reason": "accepted"},
+        ]
+    )
+
+    result = aggregate_window_output(windows)
+
+    assert result["decision"] == "review"
+    assert result["review_reason"] == "low_face_detection_rate"
+
+
+def test_candidate_track_aggregation_rejects_excessive_total_spread() -> None:
+    windows = pd.DataFrame(
+        [
+            {"sample_id": "s0", "window_id": 0, "decision": "release", "product_hr_bpm": 70.0, "candidate_hr_bpm": 70.0},
+            {"sample_id": "s1", "window_id": 1, "decision": "release", "product_hr_bpm": 76.0, "candidate_hr_bpm": 76.0},
+            {"sample_id": "s2", "window_id": 2, "decision": "release", "product_hr_bpm": 82.0, "candidate_hr_bpm": 82.0},
+        ]
+    )
+    clusters = pd.DataFrame(
+        [
+            {"sample_id": "s0", "cluster_bpm": 70.0, "roi_evidence_v2_score": 0.90, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s1", "cluster_bpm": 76.0, "roi_evidence_v2_score": 0.90, "passes_roi_evidence_v2_gate": 1},
+            {"sample_id": "s2", "cluster_bpm": 82.0, "roi_evidence_v2_score": 0.90, "passes_roi_evidence_v2_gate": 1},
+        ]
+    )
+
+    result = aggregate_candidate_tracks(windows, clusters, tolerance_bpm=6.0)
+
+    assert result["decision"] == "review"
+    assert result["released_hr_bpm"] is None
+    assert result["review_reason"] == "no_stable_cross_window_candidate_track"
+
+
+def test_unavailable_harmonic_evidence_is_neutral() -> None:
+    case = make_demo_cases()[0]
+    case["harmonic_risk"] = None
+
+    attribution = build_attribution(case)
+    harmonic = next(item for item in attribution["all_factors"] if item["factor"] == "Harmonic ambiguity")
+
+    assert harmonic["status"] == "not available"
+    assert harmonic["direction"] == 0
 
 
 def test_sidebar_restore_control_is_not_hidden_by_product_css() -> None:
@@ -190,10 +463,27 @@ def test_workspace_navigation_resets_the_main_scroll_position() -> None:
     source = (Path(__file__).resolve().parents[1] / "app" / "product_console.py").read_text(encoding="utf-8")
 
     assert 'vs_rendered_section' in source
+    assert 'vs_navigation_nonce' in source
+    assert 'const navigationNonce = __NAVIGATION_NONCE__' in source
     assert 'querySelector(\'[data-testid="stMain"]\')' in source
     assert "main.scrollTo({ top: 0, left: 0" in source
     assert "closeMobileSidebar" in source
     assert "window.parent.innerWidth > 900" in source
+
+
+def test_assessment_reset_rebuilds_the_upload_widget() -> None:
+    source = (Path(__file__).resolve().parents[1] / "app" / "product_console.py").read_text(encoding="utf-8")
+
+    assert '"vs_upload_widget_version": 0' in source
+    assert 'key=f"vs_video_upload_{st.session_state[\'vs_upload_widget_version\']}"' in source
+    assert source.count("_reset_upload_widget()") >= 2
+
+
+def test_retake_summary_presents_the_acquisition_gate_separately() -> None:
+    source = (Path(__file__).resolve().parents[1] / "app" / "product_console.py").read_text(encoding="utf-8")
+
+    assert 'str(case.get("decision")) == "retake" or overall == "fail"' in source
+    assert "_ui('Acquisition gate','采集门控')" in source
 
 
 def test_chinese_localization_handles_joined_preflight_actions() -> None:
@@ -282,12 +572,63 @@ def test_video_preflight_marks_short_blank_video_for_retake(tmp_path: Path) -> N
     assert "face visibility" in failed
 
 
+def test_video_preflight_counts_frames_when_container_metadata_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cv2 = pytest.importorskip("cv2")
+    path = tmp_path / "missing_frame_count.avi"
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"MJPG"), 15.0, (320, 240))
+    assert writer.isOpened()
+    for _ in range(45):
+        writer.write(np.full((240, 320, 3), 96, dtype=np.uint8))
+    writer.release()
+
+    real_capture = cv2.VideoCapture
+
+    class MissingCountCapture:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self._capture = real_capture(*args, **kwargs)
+
+        def get(self, property_id: int) -> float:
+            if property_id == cv2.CAP_PROP_FRAME_COUNT:
+                return 0.0
+            return float(self._capture.get(property_id))
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._capture, name)
+
+    monkeypatch.setattr(cv2, "VideoCapture", MissingCountCapture)
+    metadata = get_video_metadata(path)
+    result = video_preflight(path, sample_frames=8)
+
+    assert metadata.frame_count == 45
+    assert metadata.duration_sec == pytest.approx(3.0)
+    assert result["frame_count"] == 45
+    assert result["duration_sec"] == pytest.approx(3.0)
+    assert result["frame_count_source"] == "decoded_fallback"
+
+
 def test_openapi_schema_is_serializable(tmp_path: Path) -> None:
     schema = create_app(tmp_path / "schema.db", seed_demo=False).openapi()
     encoded = json.dumps(schema, allow_nan=False)
     assert "/api/v1/cases" in encoded
     assert "/api/v1/assessments/video" in encoded
     assert "/api/v1/reviews/{case_id}" in encoded
+
+
+def test_real_video_validation_manifest_covers_all_output_states() -> None:
+    manifest_path = Path(__file__).resolve().parents[1] / "validation" / "real_video_case_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    cases = manifest["cases"]
+
+    assert {case["expected_decision"] for case in cases} == {"release", "review", "retake"}
+    assert sum(case["expected_decision"] == "release" for case in cases) >= 1
+    assert sum(case["fixture_kind"] == "provider_dataset_original" for case in cases) >= 5
+    assert all(len(case["sha256"]) == 64 for case in cases)
+    assert all(case["fixture_kind"] for case in cases)
+    assert all("provenance" in case for case in cases)
+    assert all("reference" in case for case in cases if case["fixture_kind"] == "provider_dataset_original")
 
 
 def test_video_assessment_api_saves_retake_and_deletes_raw_video(tmp_path: Path) -> None:

@@ -21,7 +21,6 @@ from src.vision.face_mesh_roi import (
 )
 from src.vision.face_roi_timeseries import (
     FaceROITimeSeriesConfig,
-    extract_face_roi_timeseries_from_video,
     extract_face_roi_timeseries_from_video_stream,
 )
 from src.vision.roi import face_like_rois
@@ -37,6 +36,7 @@ class AdultHRMVPConfig:
     min_detection_rate: float = 0.50
     min_candidates: int = 6
     use_mediapipe: bool = True
+    fallback_detection_rate: float | None = None
     start_sec: float = 0.0
 
 
@@ -69,7 +69,8 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
     meta = get_video_metadata(path)
     source_fps = float(meta.fps or 30.0)
     start_frame = int(max(0.0, cfg.start_sec) * source_fps)
-    max_frames = int(min(max(1, meta.frame_count - start_frame), max(1.0, cfg.seconds) * source_fps))
+    max_source_frames = int(min(max(1, meta.frame_count - start_frame), max(1.0, cfg.seconds) * source_fps))
+    max_frames = max(1, (max_source_frames + cfg.frame_stride - 1) // cfg.frame_stride)
     analysis_fps = source_fps / cfg.frame_stride
 
     extraction_cfg = FaceROITimeSeriesConfig(
@@ -78,19 +79,32 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
         max_frames=max_frames,
         per_frame_landmarks=cfg.use_mediapipe,
     )
-    detector_meta: dict[str, float] = {}
+    detector_meta: dict[str, object] = {}
     if cfg.use_mediapipe:
         with MediaPipeFaceLandmarkDetector() as detector:
-            if detector.mp is not None:
+            if detector.available:
                 roi_ts, detector_meta = extract_face_roi_timeseries_from_video_stream(
                     path,
                     detector=detector,
                     config=extraction_cfg,
                     start_frame=start_frame,
                 )
+                detector_meta["detector_backend"] = detector.backend
             else:
-                roi_ts = extract_face_roi_timeseries_from_video(path, config=extraction_cfg)
-                detector_meta = {"source_fps": source_fps, "fallback_static_roi": 1.0, "detection_rate": 0.0}
+                roi_ts = extract_static_face_like_roi_timeseries(
+                    path,
+                    fps=source_fps,
+                    frame_stride=cfg.frame_stride,
+                    max_frames=max_frames,
+                    start_frame=start_frame,
+                )
+                detector_meta = {
+                    "source_fps": source_fps,
+                    "fallback_static_roi": 1.0,
+                    "fallback_reason": detector.backend,
+                    "detector_backend": "static_roi_fallback",
+                    "detection_rate": float(cfg.fallback_detection_rate or 0.0),
+                }
     else:
         roi_ts = extract_static_face_like_roi_timeseries(
             path,
@@ -99,7 +113,12 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
             max_frames=max_frames,
             start_frame=start_frame,
         )
-        detector_meta = {"source_fps": source_fps, "fallback_static_roi": 1.0, "detection_rate": 1.0}
+        detector_meta = {
+            "source_fps": source_fps,
+            "fallback_static_roi": 1.0,
+            "detector_backend": "static_roi_requested",
+            "detection_rate": float(cfg.fallback_detection_rate if cfg.fallback_detection_rate is not None else 1.0),
+        }
 
     candidates = candidate_table_from_roi_timeseries_windows(
         roi_ts,
@@ -124,7 +143,8 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
         "analysis_fps": analysis_fps,
         "frame_count": int(meta.frame_count),
         "duration_sec": float(meta.duration_sec),
-        "max_frames": max_frames,
+        "max_source_frames": max_source_frames,
+        "max_analysis_frames": max_frames,
         "start_frame": start_frame,
         "config": asdict(cfg),
         "detector_meta": detector_meta,
@@ -300,8 +320,11 @@ def first_face_preview(video_path: Path, *, start_frame: int = 0, use_mediapipe:
         landmarks = None
         if use_mediapipe:
             with MediaPipeFaceLandmarkDetector() as detector:
-                landmarks = detector.detect(frame)
-            regions = mentor_aligned_face_rois(frame, landmarks=landmarks)
+                if detector.available:
+                    landmarks = detector.detect(frame)
+                    regions = mentor_aligned_face_rois(frame, landmarks=landmarks)
+                else:
+                    regions = fallback_face_region_masks(frame)
         else:
             regions = fallback_face_region_masks(frame)
         preview_bgr = draw_face_region_masks(frame, regions)

@@ -1,0 +1,124 @@
+{
+  "manifest_version": "vitalssight.real-video-product-validation.v1",
+  "claim_boundary": "Technical verification of a retrospective research implementation; not clinical validation, usability evidence, or a medical-device claim.",
+  "model": {
+    "filename": "face_landmarker.task",
+    "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+  },
+  "reference_protocol": {
+    "lead": "II",
+    "window_sec": 30.0,
+    "bandpass_hz": [5.0, 25.0],
+    "rr_interval_sec": [0.35, 1.5],
+    "estimator": "Median RR interval after third-order Butterworth filtering; polarity selected by median peak prominence.",
+    "release_max_abs_error_bpm": 10.0
+  },
+  "cases": [
+    {
+      "case_id": "mcd_release_8555_before",
+      "dataset": "MCD-rPPG",
+      "filename": "8555_IriunWebcam_before.avi",
+      "sha256": "5df46dfae4cb8bcd701a2becf40dc7e437e4fe9eade101cf2741cc8bf7929fd4",
+      "fixture_kind": "provider_dataset_original",
+      "expected_decision": "release",
+      "expected_reason_contains": "",
+      "provenance": "Provider-dataset original selected for a label-free release-path check and a separate ECG reference audit.",
+      "reference": {
+        "filename": "8555_before.json",
+        "sha256": "42e2231387c756f98ae45410dadce2c5976a9a5ceac710cceca26b09bb55c0c6"
+      }
+    },
+    {
+      "case_id": "mcd_review_1181_interwindow_conflict",
+      "dataset": "MCD-rPPG",
+      "filename": "1181_IriunWebcam_after.avi",
+      "sha256": "6f8bc3f4a0137855dff1b2e41e54ea43ca6240d99616aa1a33bb45f83ef1c451",
+      "fixture_kind": "provider_dataset_original",
+      "expected_decision": "review",
+      "expected_reason_contains": "no_stable_cross_window_candidate_track",
+      "provenance": "Provider-dataset original retained after ECG audit exposed incompatible window-level branches under the earlier last-window policy.",
+      "reference": {
+        "filename": "1181_after.json",
+        "sha256": "2e55ae6f9af92d80cfb9bed2d56108a0183c7dfa91f16a0c162cb3ff92cb6c9f"
+      }
+    },
+    {
+      "case_id": "mcd_review_1285_competing_tracks",
+      "dataset": "MCD-rPPG",
+      "filename": "1285_USBVideo_before.avi",
+      "sha256": "6f418bb042df290e1fdf79da98742460bcc6912e6f2222ce3eab8f8b577b783c",
+      "fixture_kind": "provider_dataset_original",
+      "expected_decision": "review",
+      "expected_reason_contains": "competing_cross_window_candidate_tracks",
+      "provenance": "Provider-dataset original with two similarly supported cross-window candidate tracks; retained to test ambiguity-triggered review.",
+      "reference": {
+        "filename": "1285_before.json",
+        "sha256": "61af1ce0b9be98e747398c508466ab2a8e217a6e91b55f4cc2f113287b31a6f0"
+      }
+    },
+    {
+      "case_id": "mcd_review_8430_no_stable_track",
+      "dataset": "MCD-rPPG",
+      "filename": "8430_USBVideo_before.avi",
+      "sha256": "fc6401267f1dce40b50cdf7cff238f93e129d5893725d5710fe01a6e9f9bb110",
+      "fixture_kind": "provider_dataset_original",
+      "expected_decision": "review",
+      "expected_reason_contains": "no_stable_cross_window_candidate_track",
+      "provenance": "Provider-dataset original with window-dependent top branches; retained to test the cross-window support requirement.",
+      "reference": {
+        "filename": "8430_before.json",
+        "sha256": "9e8837d25f9e952e7d17153f0cf4c79a633f7c39aacff373b39c75979d7bb801"
+      }
+    },
+    {
+      "case_id": "mcd_review_9825_no_stable_track",
+      "dataset": "MCD-rPPG",
+      "filename": "9825_USBVideo_after.avi",
+      "sha256": "725083c4948a5ef3177551612c9410929483891c6f4ae3280ca15925c107c233",
+      "fixture_kind": "provider_dataset_original",
+      "expected_decision": "review",
+      "expected_reason_contains": "no_stable_cross_window_candidate_track",
+      "provenance": "Provider-dataset original with divergent window-level branches; retained to test non-release behavior.",
+      "reference": {
+        "filename": "9825_after.json",
+        "sha256": "9aa90df468fab089d11386c4c28588e6dc211e53f68e734a1d4dc551379940e1"
+      }
+    },
+    {
+      "case_id": "mcd_review_borderline_face_visibility",
+      "dataset": "MCD-rPPG",
+      "filename": "mcd_real_borderline_face_loss_review_8555.avi",
+      "sha256": "1195a4f9d4bf2c6f0fa8945d2abfa19efef4dcbe7623cb5c56537985426f6588",
+      "fixture_kind": "controlled_derivative_from_provider_video",
+      "expected_decision": "review",
+      "expected_reason_contains": "low_face_detection_rate",
+      "provenance": "Frames 0-599 from 8555_IriunWebcam_before; frames 270-599 replaced by zero frames to test the documented 0.35-0.50 face-visibility review boundary.",
+      "derivation": {
+        "type": "controlled_visibility",
+        "source_filename": "8555_IriunWebcam_before.avi",
+        "source_sha256": "5df46dfae4cb8bcd701a2becf40dc7e437e4fe9eade101cf2741cc8bf7929fd4",
+        "total_frames": 600,
+        "visible_frames": 270,
+        "codec": "MJPG"
+      }
+    },
+    {
+      "case_id": "mcd_retake_short_duration",
+      "dataset": "MCD-rPPG",
+      "filename": "8555_retake_first5s.avi",
+      "sha256": "1f60e2b7a4d40f283c298b1e4f4f025616c4d247ddc367e60a649dd404097ee6",
+      "fixture_kind": "frame_slice_from_provider_video",
+      "expected_decision": "retake",
+      "expected_reason_contains": "Record at least 8 seconds",
+      "provenance": "Frames 0-149 from 8555_IriunWebcam_before; duration gate only.",
+      "derivation": {
+        "type": "frame_slice",
+        "source_filename": "8555_IriunWebcam_before.avi",
+        "source_sha256": "5df46dfae4cb8bcd701a2becf40dc7e437e4fe9eade101cf2741cc8bf7929fd4",
+        "start_frame": 0,
+        "end_frame_exclusive": 150,
+        "codec": "MJPG"
+      }
+    }
+  ]
+}
