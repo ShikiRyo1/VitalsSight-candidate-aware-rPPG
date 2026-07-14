@@ -27,6 +27,14 @@ ATTRIBUTION_BOUNDARY = (
 )
 
 CONSOLE_TEXT_ZH = {
+    "The pinned landmark model was unavailable, so candidate evidence was computed from fallback regions.": "固定版本的人脸关键点模型不可用，因此本次候选证据由后备静态区域计算。",
+    "Candidate route omissions": "候选路径省略",
+    "audited, not relabelled": "已审计且未被重新标记",
+    "recorded": "已记录",
+    "Failed routes were omitted from the candidate pool and retained in runtime provenance; they were not replaced by another signal under the failed method label.": "失败路径已从候选池中省略并保留在运行溯源中；系统没有用其他信号冒充失败方法的输出。",
+    "Install the pinned runtime model with python scripts/setup_runtime_assets.py, then repeat the assessment.": "运行 python scripts/setup_runtime_assets.py 安装固定版本的运行时模型，然后重新评估。",
+    "The landmark model was unavailable; fallback regions are retained for review but are not treated as equivalent evidence.": "人脸关键点模型不可用；后备区域结果仅保留供复核，不视为等价证据。",
+    "Confirm runtime_metadata.detector_backend is mediapipe_face_landmarker_task on the repeated assessment.": "重新评估后，确认 runtime_metadata.detector_backend 为 mediapipe_face_landmarker_task。",
     CLAIM_BOUNDARY: "仅用于回顾性研究流程。本输出不是诊断、急救告警、医疗器械决定，也不是经验证的临床自主放行。",
     ATTRIBUTION_BOUNDARY: "本面板说明观测证据和策略规则，不构成因果解释、安全概率或临床理由。",
     "Synthetic candidate-release demonstration": "合成候选-放行流程演示",
@@ -546,33 +554,76 @@ def build_attribution(case: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    face = finite_float(case.get("face_coverage"))
-    add(
-        "Face visibility",
-        face,
-        "fraction",
-        positive=face is not None and face >= 0.70,
-        reason="Sufficient visible-face coverage is required before candidate evidence is interpreted.",
-        source_field="face_coverage",
-    )
-    illumination = finite_float(case.get("illumination_score"))
-    add(
-        "Illumination",
-        illumination,
-        "score",
-        positive=illumination is not None and illumination >= 0.55,
-        reason="Very dark or saturated frames weaken the recoverable color signal.",
-        source_field="illumination_score",
-    )
-    motion = finite_float(case.get("motion_score"))
-    add(
-        "Motion",
-        motion,
-        "score",
-        positive=motion is not None and motion <= 0.35,
-        reason="Large frame-to-frame motion can move ROI traces away from physiological variation.",
-        source_field="motion_score",
-    )
+    raw_preflight_checks = (case.get("preflight") or {}).get("checks") or []
+    if raw_preflight_checks:
+        factor_labels = {
+            "file readability": "File readability",
+            "duration": "Duration",
+            "frame rate": "Frame rate",
+            "resolution": "Resolution",
+            "illumination": "Illumination",
+            "motion": "Motion",
+            "face visibility": "Face visibility",
+        }
+        for item in raw_preflight_checks:
+            check = str(item.get("check") or "acquisition check").lower()
+            status = str(item.get("status") or "fail").lower()
+            add(
+                factor_labels.get(check, check.title()),
+                finite_float(item.get("value")),
+                str(item.get("unit") or ""),
+                positive=status == "pass",
+                reason="The acquisition factor is interpreted with the same threshold shown in the quality table.",
+                source_field=f"preflight.checks.{check}",
+            )
+    else:
+        face = finite_float(case.get("face_coverage"))
+        add(
+            "Face visibility",
+            face,
+            "fraction",
+            positive=face is not None and face >= 0.70,
+            reason="Sufficient visible-face coverage is required before candidate evidence is interpreted.",
+            source_field="face_coverage",
+        )
+        illumination = finite_float(case.get("illumination_score"))
+        add(
+            "Illumination",
+            illumination,
+            "score",
+            positive=illumination is not None and illumination >= 0.55,
+            reason="Very dark or saturated frames weaken the recoverable color signal.",
+            source_field="illumination_score",
+        )
+        motion = finite_float(case.get("motion_score"))
+        add(
+            "Motion",
+            motion,
+            "score",
+            positive=motion is not None and motion <= 0.35,
+            reason="Large frame-to-frame motion can move ROI traces away from physiological variation.",
+            source_field="motion_score",
+        )
+
+    runtime_metadata = case.get("runtime_metadata") or {}
+    detector_backend = str(runtime_metadata.get("detector_backend") or "")
+    if detector_backend:
+        fallback = detector_backend.startswith("static_roi")
+        factors.append(
+            {
+                "factor": "Landmark backend",
+                "observed": detector_backend,
+                "unit": "",
+                "status": "supports review" if fallback else "supports release",
+                "direction": -1 if fallback else 1,
+                "reason": (
+                    "The landmark model was unavailable, so the run used static fallback regions."
+                    if fallback
+                    else "The configured face-landmark model supplied the regional evidence."
+                ),
+                "source_field": "runtime_metadata.detector_backend",
+            }
+        )
     agreement = finite_float(case.get("agreement_fraction"))
     add(
         "Candidate agreement",
@@ -682,7 +733,7 @@ def build_action_plan(case: dict[str, Any]) -> dict[str, Any]:
 
     preflight = normalized.get("preflight") or {}
     preflight_checks = preflight.get("checks") or []
-    if normalized["decision"] == "retake" and preflight_checks:
+    if preflight_checks:
         targets = {
             "file readability": "decodable supported video",
             "duration": ">= 20 s preferred; >= 8 s minimum",
@@ -723,7 +774,7 @@ def build_action_plan(case: dict[str, Any]) -> dict[str, Any]:
                     ),
                 }
             )
-            if status != "pass":
+            if status != "pass" and normalized["decision"] != "release":
                 steps.append(
                     {
                         "step": len(steps) + 1,
@@ -737,18 +788,53 @@ def build_action_plan(case: dict[str, Any]) -> dict[str, Any]:
                         "source_field": f"preflight.checks.{check}",
                     }
                 )
+        if normalized["decision"] == "retake":
+            evidence.append(
+                {
+                    "signal": "Candidate construction",
+                    "source_field": "pipeline.candidate_construction",
+                    "observed": "not entered",
+                    "target": "preflight pass",
+                    "status": "not evaluated",
+                    "reason": "Candidate construction was not entered because preflight failed; candidate count is therefore not an acquisition failure.",
+                }
+            )
+
+    runtime_metadata = normalized.get("runtime_metadata") or {}
+    detector_backend = str(runtime_metadata.get("detector_backend") or "")
+    if detector_backend.startswith("static_roi"):
         evidence.append(
             {
-                "signal": "Candidate construction",
-                "source_field": "pipeline.candidate_construction",
-                "observed": "not entered",
-                "target": "preflight pass",
-                "status": "not evaluated",
-                "reason": "Candidate construction was not entered because preflight failed; candidate count is therefore not an acquisition failure.",
+                "signal": "Face-landmark backend",
+                "source_field": "runtime_metadata.detector_backend",
+                "observed": detector_backend,
+                "target": "mediapipe_face_landmarker_task",
+                "status": "triggered",
+                "reason": "The pinned landmark model was unavailable, so candidate evidence was computed from fallback regions.",
             }
         )
-    else:
-        preflight_checks = []
+        steps.append(
+            {
+                "step": len(steps) + 1,
+                "action": "Install the pinned runtime model with python scripts/setup_runtime_assets.py, then repeat the assessment.",
+                "because": "The landmark model was unavailable; fallback regions are retained for review but are not treated as equivalent evidence.",
+                "verification": "Confirm runtime_metadata.detector_backend is mediapipe_face_landmarker_task on the repeated assessment.",
+                "source_field": "runtime_metadata.detector_backend",
+            }
+        )
+
+    route_failure_count = int(finite_float(runtime_metadata.get("route_failure_count"), 0.0) or 0)
+    if route_failure_count:
+        evidence.append(
+            {
+                "signal": "Candidate route omissions",
+                "source_field": "runtime_metadata.route_failures",
+                "observed": str(route_failure_count),
+                "target": "audited, not relabelled",
+                "status": "recorded",
+                "reason": "Failed routes were omitted from the candidate pool and retained in runtime provenance; they were not replaced by another signal under the failed method label.",
+            }
+        )
 
     face = finite_float(normalized.get("face_coverage"))
     if not preflight_checks:
@@ -789,8 +875,9 @@ def build_action_plan(case: dict[str, Any]) -> dict[str, Any]:
             action="Stabilize the device and ask the participant to remain still and avoid speaking.",
             verification="Confirm the motion score is no greater than 35% on the repeat recording.",
         )
+    candidate_stage_entered = not (normalized["decision"] == "retake" and bool(preflight_checks))
     candidate_count = int(finite_float(normalized.get("candidate_count"), 0.0) or 0)
-    if not preflight_checks:
+    if candidate_stage_entered:
         add_evidence(
             "Candidate count",
             "candidate_count",
@@ -802,7 +889,7 @@ def build_action_plan(case: dict[str, Any]) -> dict[str, Any]:
             action="Record a longer, stable window with the full face visible so multiple routes can form candidates.",
             verification="Confirm at least three candidates are retained before automatic reporting is considered.",
         )
-    if not preflight_checks and candidate_count > 0:
+    if candidate_stage_entered and candidate_count > 0:
         agreement = finite_float(normalized.get("agreement_fraction"))
         add_evidence(
             "Candidate agreement",
@@ -853,7 +940,7 @@ def build_action_plan(case: dict[str, Any]) -> dict[str, Any]:
                 action="Keep the competing tracks linked to the case and route them to review.",
                 verification="Confirm that no competing track remains within the documented score margin before release.",
             )
-    if not preflight_checks and normalized.get("selected_candidate_hr_bpm") is not None:
+    if candidate_stage_entered and normalized.get("selected_candidate_hr_bpm") is not None:
         confidence = finite_float(normalized.get("confidence"))
         add_evidence(
             "Selector support",
@@ -964,7 +1051,7 @@ def video_preflight(path: str | Path, *, sample_frames: int = 48) -> dict[str, A
         if candidate_landmark_detector.available:
             landmark_detector = candidate_landmark_detector
             detector_backend = candidate_landmark_detector.backend
-            detector_source = candidate_landmark_detector.model_path
+            detector_source = Path(candidate_landmark_detector.model_path).name or None
         else:
             candidate_landmark_detector.close()
     except Exception:
@@ -983,7 +1070,7 @@ def video_preflight(path: str | Path, *, sample_frames: int = 48) -> dict[str, A
             if not candidate.empty():
                 detector = candidate
                 detector_backend = "opencv_haar_cascade"
-                detector_source = str(cascade_path)
+                detector_source = cascade_path.name
                 break
     def inspect_frame(frame: np.ndarray) -> None:
         nonlocal faces, previous
@@ -1661,6 +1748,9 @@ def run_uploaded_video(
         fallback_detection_rate=float(preflight["face_detection_rate"]),
     )
     result = run_adult_hr_video(path, config=config)
+    detector_meta = result.metadata.get("detector_meta", {})
+    detector_model_path = Path(str(detector_meta.get("detector_model_path") or ""))
+    detector_model_sha256 = detector_meta.get("detector_model_sha256")
     windows = result.windows.sort_values("window_id") if not result.windows.empty else result.windows
     aggregate = aggregate_candidate_tracks(windows, result.clusters)
     representative = aggregate["representative"]
@@ -1684,7 +1774,7 @@ def run_uploaded_video(
                 }
             )
 
-    detection = finite_float(result.metadata.get("detector_meta", {}).get("detection_rate"), preflight["face_detection_rate"])
+    detection = finite_float(detector_meta.get("detection_rate"), preflight["face_detection_rate"])
     agreement = finite_float(
         representative.get("roi_evidence_v2_score"),
         finite_float(representative.get("roi_evidence_score"), 0.0),
@@ -1732,8 +1822,17 @@ def run_uploaded_video(
         "window_results": json_safe(windows.to_dict("records")),
         "runtime_metadata": json_safe(
             {
-                "detector_backend": result.metadata.get("detector_meta", {}).get("detector_backend", "unknown"),
-                "fallback_static_roi": result.metadata.get("detector_meta", {}).get("fallback_static_roi", 0.0),
+                "detector_backend": detector_meta.get("detector_backend", "unknown"),
+                "detector_model_asset": detector_model_path.name if detector_model_path.name else None,
+                "detector_model_sha256": detector_model_sha256,
+                "detector_model_integrity": detector_meta.get("detector_model_integrity"),
+                "detector_initialization_error": detector_meta.get("detector_initialization_error") or None,
+                "fallback_static_roi": detector_meta.get("fallback_static_roi", 0.0),
+                "release_eligible_detector": bool(
+                    detector_meta.get("detector_backend") in {"mediapipe_face_landmarker_task", "mediapipe_face_mesh"}
+                ),
+                "route_failure_count": result.metadata.get("route_failure_count", 0),
+                "route_failures": result.metadata.get("route_failures", []),
                 "analysis_fps": result.metadata.get("analysis_fps"),
                 "max_source_frames": result.metadata.get("max_source_frames"),
                 "max_analysis_frames": result.metadata.get("max_analysis_frames"),
@@ -1892,6 +1991,12 @@ def build_report_markdown(payload: dict[str, Any], *, language: str = "en") -> s
             f"- {'策略版本' if zh else 'Policy version'}: {case.get('policy_version') or 'N/A'}",
             f"- {'人脸检测后端' if zh else 'Face detector backend'}: "
             f"{(case.get('runtime_metadata') or {}).get('detector_backend') or (case.get('preflight') or {}).get('face_detector_backend') or 'N/A'}",
+            f"- {'检测模型完整性' if zh else 'Detector model integrity'}: "
+            f"{(case.get('runtime_metadata') or {}).get('detector_model_integrity') or 'N/A'}",
+            f"- {'检测模型 SHA-256' if zh else 'Detector model SHA-256'}: "
+            f"{(case.get('runtime_metadata') or {}).get('detector_model_sha256') or 'N/A'}",
+            f"- {'已审计的路由省略数' if zh else 'Audited route omissions'}: "
+            f"{_fmt_number((case.get('runtime_metadata') or {}).get('route_failure_count'))}",
             f"- {'分析采样率' if zh else 'Analysis sampling rate'}: "
             f"{_fmt_number((case.get('runtime_metadata') or {}).get('analysis_fps')) + ' fps' if (case.get('runtime_metadata') or {}).get('analysis_fps') is not None else 'N/A'}",
             f"- {'分析帧预算' if zh else 'Analysis frame budget'}: "
@@ -2105,6 +2210,9 @@ def build_report_pdf(payload: dict[str, Any], *, language: str = "en") -> bytes:
             "人脸检测后端" if zh else "Face detector backend",
             str(runtime.get("detector_backend") or preflight.get("face_detector_backend") or "N/A"),
         ],
+        ["检测模型完整性" if zh else "Detector model integrity", str(runtime.get("detector_model_integrity") or "N/A")],
+        ["检测模型 SHA-256" if zh else "Detector model SHA-256", str(runtime.get("detector_model_sha256") or "N/A")],
+        ["已审计的路由省略数" if zh else "Audited route omissions", _fmt_number(runtime.get("route_failure_count"))],
         [
             "分析采样率" if zh else "Analysis sampling rate",
             f"{_fmt_number(runtime.get('analysis_fps'))} fps" if runtime.get("analysis_fps") is not None else "N/A",

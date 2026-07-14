@@ -53,13 +53,17 @@ INFERENCE_CASE_FIELDS = {"runtime_metadata"}
 SNAPSHOT_PATHS = (
     "app/api_server.py",
     "app/product_console.py",
+    "src/baselines/traditional_rppg.py",
     "src/data/video_io.py",
     "src/product/adult_hr_mvp.py",
     "src/product/console_api.py",
     "src/product/console_service.py",
     "src/vision/face_mesh_roi.py",
     "scripts/run_real_video_product_validation.py",
+    "scripts/setup_runtime_assets.py",
+    "scripts/validate_browser_product.mjs",
     "tests/test_console_product.py",
+    "tests/test_traditional_rppg.py",
     "validation/real_video_case_manifest.json",
 )
 
@@ -139,7 +143,11 @@ def verify_reference_case(case: dict[str, Any], spec: dict[str, Any], reference:
 
 def load_manifest(path: Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
-    if data.get("manifest_version") != "vitalssight.real-video-product-validation.v1":
+    supported_versions = {
+        "vitalssight.real-video-product-validation.v1",
+        "vitalssight.real-video-product-validation.v2",
+    }
+    if data.get("manifest_version") not in supported_versions:
         raise ValueError("Unsupported validation manifest version")
     if not data.get("cases"):
         raise ValueError("Validation manifest contains no cases")
@@ -200,7 +208,12 @@ def prepare_derived_fixture(spec: dict[str, Any], fixture_root: Path) -> None:
         writer.release()
 
 
-def verify_case_contract(case: dict[str, Any], spec: dict[str, Any]) -> list[str]:
+def verify_case_contract(
+    case: dict[str, Any],
+    spec: dict[str, Any],
+    *,
+    expected_model_sha256: str | None = None,
+) -> list[str]:
     failures: list[str] = []
     missing = sorted(REQUIRED_CASE_FIELDS - set(case))
     if missing:
@@ -214,6 +227,21 @@ def verify_case_contract(case: dict[str, Any], spec: dict[str, Any]) -> list[str
             failures.append(
                 f"missing inference fields: {', '.join(missing_inference)}"
             )
+        runtime = case.get("runtime_metadata") or {}
+        if runtime.get("detector_backend") != "mediapipe_face_landmarker_task":
+            failures.append(
+                "inference did not use mediapipe_face_landmarker_task: "
+                f"{runtime.get('detector_backend')!r}"
+            )
+        if runtime.get("release_eligible_detector") is not True:
+            failures.append("inference detector was not marked release eligible")
+        if runtime.get("detector_model_integrity") != "verified_pinned_sha256":
+            failures.append("pinned detector model integrity was not verified")
+        if expected_model_sha256 and runtime.get("detector_model_sha256") != expected_model_sha256:
+            failures.append("runtime detector SHA256 differs from the frozen manifest")
+        route_failures = runtime.get("route_failures") or []
+        if int(runtime.get("route_failure_count") or 0) != len(route_failures):
+            failures.append("route-failure count does not match the auditable failure list")
     if case.get("decision") != expected:
         failures.append(f"decision {case.get('decision')} != {expected}")
     released = case.get("released_hr_bpm")
@@ -261,6 +289,7 @@ def run_direct_case(
     spec: dict[str, Any],
     repeats: int,
     reference: dict[str, Any] | None,
+    expected_model_sha256: str,
 ) -> dict[str, Any]:
     runs: list[dict[str, Any]] = []
     failures: list[str] = []
@@ -274,7 +303,11 @@ def run_direct_case(
             preflight=preflight,
         )
         elapsed = time.perf_counter() - started
-        run_failures = verify_case_contract(case, spec)
+        run_failures = verify_case_contract(
+            case,
+            spec,
+            expected_model_sha256=expected_model_sha256,
+        )
         run_failures.extend(verify_reference_case(case, spec, reference))
         failures.extend(f"repeat {repeat + 1}: {item}" for item in run_failures)
         runs.append(
@@ -338,7 +371,13 @@ def run_api_cases(
             continue
         payload = response.json()
         case = payload["item"]
-        failures.extend(verify_case_contract(case, spec))
+        failures.extend(
+            verify_case_contract(
+                case,
+                spec,
+                expected_model_sha256=str(manifest["model"]["sha256"]),
+            )
+        )
         direct_case = direct_results[spec["case_id"]]["runs"][0]["case"]
         reference = direct_results[spec["case_id"]].get("reference")
         failures.extend(verify_reference_case(case, spec, reference))
@@ -657,6 +696,7 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=Path("output/real_video_product_validation"))
     parser.add_argument("--repeats", type=int, default=2)
     parser.add_argument("--prepare-derived", action="store_true")
+    parser.add_argument("--require-clean", action="store_true")
     args = parser.parse_args()
     if args.repeats < 1:
         raise ValueError("--repeats must be at least 1")
@@ -696,9 +736,12 @@ def main() -> int:
         for spec in manifest["cases"]
     }
 
+    working_tree = git_working_tree_snapshot()
+    if args.require_clean and working_tree["dirty"]:
+        raise RuntimeError("--require-clean was set, but the Git working tree is dirty")
     provenance = {
         "git_commit": git_commit(),
-        "working_tree": git_working_tree_snapshot(),
+        "working_tree": working_tree,
         "python": sys.version,
         "platform": platform.platform(),
         "opencv": cv2.__version__,
@@ -720,6 +763,7 @@ def main() -> int:
             spec,
             args.repeats,
             references[spec["case_id"]],
+            str(manifest["model"]["sha256"]),
         )
     api = run_api_cases(manifest, args.fixture_root, args.output_dir, direct)
     passed = write_outputs(args.output_dir, manifest, provenance, direct, api)

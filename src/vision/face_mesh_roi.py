@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+import hashlib
 import os
 from pathlib import Path
 
@@ -31,6 +32,54 @@ TCM_INTERPRETIVE_LABELS: Mapping[str, str] = {
 }
 
 
+FACE_LANDMARKER_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
+    "face_landmarker/float16/latest/face_landmarker.task"
+)
+FACE_LANDMARKER_MODEL_SHA256 = "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+DEFAULT_FACE_LANDMARKER_MODEL = (
+    Path(__file__).resolve().parents[2] / "runtime" / "models" / "face_landmarker.task"
+)
+
+
+def resolve_face_landmarker_model_path(model_path: str | Path | None = None) -> Path:
+    """Resolve an explicit, environment-provided, or locally installed model asset."""
+
+    if model_path:
+        return Path(model_path).expanduser().resolve()
+    configured = os.environ.get("MEDIAPIPE_FACE_LANDMARKER_TASK")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    candidates = (
+        DEFAULT_FACE_LANDMARKER_MODEL,
+        Path(__file__).resolve().parents[2] / "third_party" / "mediapipe" / "face_landmarker.task",
+    )
+    return next((path.resolve() for path in candidates if path.is_file()), candidates[0].resolve())
+
+
+def face_landmarker_model_sha256(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def validate_face_landmarker_model(path: str | Path) -> str:
+    """Return the model hash only when the runtime asset matches the pinned bundle."""
+
+    model = Path(path)
+    if not model.is_file():
+        raise FileNotFoundError(f"Face Landmarker model is missing: {model.name}")
+    observed = face_landmarker_model_sha256(model)
+    if observed != FACE_LANDMARKER_MODEL_SHA256:
+        raise ValueError(
+            "Face Landmarker SHA256 mismatch: "
+            f"expected {FACE_LANDMARKER_MODEL_SHA256}, observed {observed}"
+        )
+    return observed
+
+
 @dataclass(frozen=True)
 class FaceRegionMask:
     name: str
@@ -50,28 +99,32 @@ class MediaPipeFaceLandmarkDetector:
     new model object for every video frame.
     """
 
-    def __init__(self, model_path: str | None = None) -> None:
+    def __init__(self, model_path: str | Path | None = None) -> None:
         try:
             import mediapipe as mp  # type: ignore[import-not-found]
         except Exception:
             mp = None
         self.mp = mp
-        self.model_path = model_path or os.environ.get("MEDIAPIPE_FACE_LANDMARKER_TASK") or str(
-            Path(__file__).resolve().parents[2] / "third_party" / "mediapipe" / "face_landmarker.task"
-        )
+        self.model_path = str(resolve_face_landmarker_model_path(model_path))
+        self.model_sha256: str | None = None
+        self.model_integrity_status = "not_checked"
+        self.initialization_error = ""
         self._mesh = None
         self._landmarker = None
         if self.mp is None:
             return
         if hasattr(self.mp, "solutions"):
+            self.model_integrity_status = "not_applicable_builtin_face_mesh"
             self._mesh = self.mp.solutions.face_mesh.FaceMesh(  # type: ignore[attr-defined]
                 static_image_mode=True,
                 max_num_faces=1,
                 refine_landmarks=False,
                 min_detection_confidence=0.5,
             )
-        elif Path(self.model_path).exists():
+        else:
             try:
+                self.model_sha256 = validate_face_landmarker_model(self.model_path)
+                self.model_integrity_status = "verified_pinned_sha256"
                 model_buffer = Path(self.model_path).read_bytes()
                 base_options = self.mp.tasks.BaseOptions(model_asset_buffer=model_buffer)  # type: ignore[attr-defined]
                 options = self.mp.tasks.vision.FaceLandmarkerOptions(  # type: ignore[attr-defined]
@@ -80,7 +133,9 @@ class MediaPipeFaceLandmarkDetector:
                     num_faces=1,
                 )
                 self._landmarker = self.mp.tasks.vision.FaceLandmarker.create_from_options(options)  # type: ignore[attr-defined]
-            except Exception:
+            except Exception as error:
+                self.initialization_error = f"{type(error).__name__}: {str(error)[:240]}"
+                self.model_integrity_status = "failed"
                 self._landmarker = None
 
     @property
@@ -95,6 +150,8 @@ class MediaPipeFaceLandmarkDetector:
             return "mediapipe_face_landmarker_task"
         if self.mp is None:
             return "mediapipe_package_unavailable"
+        if self.model_integrity_status == "failed":
+            return "mediapipe_model_integrity_failed"
         return "mediapipe_model_unavailable"
 
     def detect(self, frame: np.ndarray) -> np.ndarray | None:

@@ -1,6 +1,6 @@
 # VitalsSight product console QA report
 
-Verification date: 2026-07-14
+Verification date: 2026-07-15
 
 ## Verified product workflow
 
@@ -16,7 +16,7 @@ Verification date: 2026-07-14
 
 ## Automated checks
 
-The full suite contains 39 passing tests. It covers strict non-release HR withholding, finite release values, candidate-track aggregation, evidence attribution, quality-gate semantics, SQLite persistence, bilingual reports, preflight and runtime failures, API endpoints, raw-video deletion, uploader reset, sidebar recovery, and navigation behavior. A dedicated regression test confirms that a preflight `retake` report does not mislabel an unentered candidate stage or a passing luma check as a failure.
+The full suite contains 46 passing tests. It covers strict non-release HR withholding, finite release values, candidate-track aggregation, evidence attribution, quality-gate semantics, SQLite persistence, bilingual reports, preflight and runtime failures, API endpoints, raw-video deletion, uploader reset, sidebar recovery, navigation behavior, runtime-model installation and provenance, explicit rejection of non-converged ICA routes, and the rule that static-ROI fallback evidence can never enter a release state. Dedicated regressions confirm that a preflight `retake` report does not mislabel an unentered candidate stage or a passing luma check as a failure, that a failed ICA route is not relabelled as an independent method by silently returning GREEN, and that an unpinned Face Landmarker asset fails runtime integrity validation.
 
 ```bash
 .venv/Scripts/python -m pytest -q
@@ -24,7 +24,7 @@ The full suite contains 39 passing tests. It covers strict non-release HR withho
 git diff --check
 ```
 
-Observed result: `39 passed`; compile and whitespace checks passed.
+Observed result: `46 passed`; compile and whitespace checks passed.
 
 ## Real-video implementation conformance
 
@@ -32,23 +32,25 @@ Seven hash-locked MCD-rPPG fixtures form a post hoc curated regression/conforman
 
 The released fixture produced 75.0628 BPM. A reference-only Lead-II ECG comparison produced 77.1208 BPM, an absolute difference of 2.0581 BPM. ECG/reference HR was not passed to candidate construction, selection, or gating. The fixtures were curated for behavioral conformance, not sampled as an independent accuracy cohort.
 
-Evidence: `output/real_video_product_validation_20260714_iteration57/`.
+Evidence: `output/real_video_product_validation_20260715_iteration83/`. The v2 fixture contract preserves the frozen state expectation and HR-withholding rule while defining the 9825 review invariant at the mechanism level (`cross_window_candidate_track`), because both no-stable-track and competing-track subtypes require the same non-release action.
 
 ## Real-browser checks
 
-Playwright exercised the final service at 1440 x 1000 and 390 x 844. It verified:
+Playwright exercised the final service at 1440 x 1000 and in a separate fresh 390 x 844 mobile context. The committed browser assertions verified:
 
 - real-video release, review, and retake outcomes against their expected states;
 - consent warnings, run feedback, clear/reset behavior, and raw-upload deletion;
-- all eight workspaces and the role-based guided workflow;
+- all eight workspaces, the role-based guide content, and its complete start action;
 - PDF, JSON, Markdown, CSV, and OpenAPI downloads;
 - report detail, evidence-to-action, attribution, review/audit, and structured-data tabs;
 - review assignment, note, resolution, save feedback, and `review.updated` persistence;
-- integration audit persistence, operator save, and non-destructive demo restoration;
-- sidebar restoration and automatic mobile close after navigation;
+- integration audit persistence in the shared case store, operator save, and non-destructive demo restoration;
+- sidebar restoration on desktop and in a fresh mobile session, plus automatic mobile close after navigation;
 - no page-level horizontal overflow at 390 px and zero browser-console errors.
 
-The final desktop release case reported 75.1 BPM and an acquisition-gate state of Passed. The final review and retake cases withheld HR. Screenshots and snapshots are retained under `output/browser_validation_20260714_iteration57/playwright/final_run/`.
+The harness refuses to run against a dirty working tree or a commit argument that differs from the checked-out Git commit. The manifest records both the commit and Git tree, so the browser evidence is source-bound rather than a free-form session label.
+
+The final desktop release case reported 75.1 BPM and an acquisition-gate state of Passed. The final review and retake cases withheld HR. The browser console, page-error stream and unexpected HTTP-response error list were empty. Screenshots, DOM text snapshots, downloads, database and logs are retained under `output/browser_validation_20260715_iteration84/`.
 
 ## Defects repaired
 
@@ -61,6 +63,13 @@ The final desktop release case reported 75.1 BPM and an acquisition-gate state o
 7. Top-level summaries separate acquisition-gate state from component quality scores.
 8. Mobile workspace navigation now closes the sidebar after selection.
 9. Preflight-retake reports now use the original acquisition checks, identify candidate construction as not entered, and recommend correction only for failed or warning checks.
+10. The default runtime resolves a pinned MediaPipe Face Landmarker asset, enforces its SHA256 before initialization, records backend and integrity provenance, and reports an explicit static-ROI fallback instead of silently changing the candidate pool. Static-ROI evidence is never release eligible.
+11. Initial mobile rendering leaves the sidebar interactive; only a completed workspace navigation triggers a one-shot close, so the restore control remains usable.
+12. Mixed numeric/text report columns are normalized before DataFrame rendering, eliminating Arrow conversion failures without changing evidence values.
+13. The navigation helper uses the current `st.iframe` interface rather than the deprecated `st.components.v1.html` path.
+14. FastICA convergence warnings are promoted to route failures; an unconverged or failed ICA output is omitted rather than being counted or replaced by a GREEN signal under the ICA label. Route name, region, window, error class, and omission count remain in runtime evidence.
+15. Exported evidence reports expose only detector asset names and hashes, not absolute workstation paths.
+16. Browser QA now uses a repository-local pinned Playwright dependency, a clean-tree/commit gate, and a separate fresh mobile browser context.
 
 ## Product boundary
 

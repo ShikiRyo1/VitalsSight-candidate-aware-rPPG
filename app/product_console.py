@@ -16,7 +16,6 @@ if str(PROJECT) not in sys.path:
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from streamlit.components.v1 import html as component_html
 
 from src.product.console_api import create_app
 from src.product.console_service import (
@@ -165,7 +164,9 @@ def _init_state() -> None:
         "vs_assessment_result": None,
         "vs_flash": "",
         "vs_flash_kind": "success",
-        "vs_rendered_section": "",
+        # Keep the first mobile render interactive; only later workspace changes
+        # trigger the one-shot auto-close behavior.
+        "vs_rendered_section": "Overview",
         "vs_navigation_nonce": 0,
     }
     for key, value in defaults.items():
@@ -840,6 +841,14 @@ def _reports(store: ConsoleStore) -> None:
                 runtime.get("detector_backend") or preflight.get("face_detector_backend") or "N/A",
             ],
             [
+                _ui("Detector model integrity", "检测模型完整性"),
+                runtime.get("detector_model_integrity") or "N/A",
+            ],
+            [
+                _ui("Audited route omissions", "已审计的路由省略数"),
+                runtime.get("route_failure_count", "N/A"),
+            ],
+            [
                 _ui("Analysis sampling rate", "分析采样率"),
                 f"{runtime['analysis_fps']} fps" if runtime.get("analysis_fps") is not None else "N/A",
             ],
@@ -863,7 +872,7 @@ def _reports(store: ConsoleStore) -> None:
         attribution_rows = [
             {
                 _ui("Factor", "因素"): _data_text(item.get("factor")),
-                _ui("Observed", "观测值"): item.get("observed"),
+                _ui("Observed", "观测值"): _data_text(item.get("observed")),
                 _ui("Direction", "方向"): _data_text(item.get("status")),
                 _ui("Reason", "理由"): _data_text(item.get("reason")),
                 _ui("Source field", "来源字段"): item.get("source_field"),
@@ -928,8 +937,8 @@ def _action_plan_panel(plan: dict[str, Any], *, compact: bool) -> None:
         rows = [
             {
                 _ui("Signal", "信号"): _data_text(item.get("signal")),
-                _ui("Observed", "观测值"): item.get("observed"),
-                _ui("Target", "目标"): item.get("target"),
+                _ui("Observed", "观测值"): _data_text(item.get("observed")),
+                _ui("Target", "目标"): _data_text(item.get("target")),
                 _ui("State", "状态"): _data_text(item.get("status")),
                 _ui("Reason", "原因"): _data_text(item.get("reason")),
             }
@@ -1374,20 +1383,20 @@ def _reset_main_scroll(navigation_nonce: int) -> None:
             if (collapse) collapse.click();
         };
         resetMainScroll();
-        window.requestAnimationFrame(resetMainScroll);
-        let attempts = 0;
-        const timer = window.setInterval(() => {
+        window.requestAnimationFrame(() => {
             resetMainScroll();
             closeMobileSidebar();
-            attempts += 1;
-            if (attempts >= 20) window.clearInterval(timer);
-        }, 100);
+        });
+        window.setTimeout(() => {
+            resetMainScroll();
+            closeMobileSidebar();
+        }, 150);
         </script>
         """.replace("__NAVIGATION_NONCE__", str(int(navigation_nonce)))
-    component_html(
+    st.iframe(
         script,
-        height=0,
-        width=0,
+        height=1,
+        width=1,
     )
 
 

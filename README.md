@@ -16,7 +16,7 @@ This release contains:
 - partial runtime profiling and the Streamlit research interface;
 - protocol descriptors and aggregate manuscript metrics.
 
-This release does **not** contain raw videos, identifiable participant frames, third-party datasets, third-party repositories, model checkpoints, private paths, credentials or internal execution logs. Dataset access remains governed by the original providers. The software is a research artifact and is not a medical device or a validated autonomous clinical-release system.
+This release does **not** contain raw videos, identifiable participant frames, third-party datasets, third-party repositories, model checkpoints, private paths, credentials or internal execution logs. The pinned MediaPipe Face Landmarker runtime asset is installed separately from Google's official model host and verified by SHA256. Dataset access remains governed by the original providers. The software is a research artifact and is not a medical device or a validated autonomous clinical-release system.
 
 ## Installation
 
@@ -30,6 +30,8 @@ python -m pip install --upgrade pip
 pip install -r requirements-core.txt
 ```
 
+Node.js 20 or later is needed only for the committed Playwright browser-validation harness; the application itself does not require Node.js.
+
 Optional deep-learning dependencies are listed in `requirements-deep.txt` and `requirements-torch-cu128.txt`. Install a PyTorch build appropriate for the local CUDA runtime before installing optional deep components.
 
 ## Product console
@@ -39,8 +41,11 @@ The default Streamlit entry point is a complete research-product workflow with r
 ![VitalsSight evidence operations console](docs/assets/product-console-overview.png)
 
 ```bash
+python scripts/setup_runtime_assets.py
 streamlit run app/streamlit_app.py
 ```
+
+The setup command downloads the official MediaPipe Face Landmarker bundle to the ignored `runtime/models` directory and verifies SHA256 `64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff`. Use `--source /path/to/face_landmarker.task` for an offline authorized copy. Runtime initialization independently verifies the same hash. If the model is unavailable or fails integrity verification, the pipeline records `static_roi_fallback`; fallback evidence is never release eligible and is returned only with an explicit review action.
 
 The accompanying REST API uses the same SQLite evidence and audit store:
 
@@ -64,6 +69,17 @@ The endpoint returns `release`, `review`, or `retake`. Only `release` may contai
 The previous experiment-heavy dashboard is retained at `app/legacy_research_dashboard.py` for provenance, but it is no longer the default product surface. See [docs/PRODUCT_BENCHMARK_AND_COMPLETION.md](docs/PRODUCT_BENCHMARK_AND_COMPLETION.md) for the official-source product benchmark and implemented workflow contract.
 
 The final functional and visual verification record is in [docs/PRODUCT_QA_REPORT.md](docs/PRODUCT_QA_REPORT.md).
+
+The frozen real-video backend/API replay and the real-browser workflow are reproducible with the committed validation harnesses:
+
+```bash
+python scripts/run_real_video_product_validation.py --manifest validation/real_video_case_manifest.json --fixture-root /authorized/fixture/root --output-dir output/real_video_product_validation --repeats 2 --require-clean
+npm ci
+npx playwright install chromium
+node scripts/validate_browser_product.mjs http://127.0.0.1:8501 http://127.0.0.1:8010 /authorized/fixture/root output/browser_validation $(git rev-parse HEAD)
+```
+
+The browser harness expects the Streamlit console and REST API to be running and uses a fresh database/upload directory supplied through `VITALSSIGHT_DB_PATH` and `VITALSSIGHT_UPLOAD_DIR`. The private fixtures are not distributed by this repository.
 
 ## Quick check
 

@@ -1,5 +1,6 @@
 {
-  "manifest_version": "vitalssight.real-video-product-validation.v1",
+  "manifest_version": "vitalssight.real-video-product-validation.v2",
+  "contract_revision": "The 9825 review invariant is cross-window candidate-track ambiguity rather than one internal ambiguity subtype; release withholding remains unchanged.",
   "claim_boundary": "Technical verification of a retrospective research implementation; not clinical validation, usability evidence, or a medical-device claim.",
   "model": {
     "filename": "face_landmarker.task",
@@ -71,14 +72,14 @@
       }
     },
     {
-      "case_id": "mcd_review_9825_no_stable_track",
+      "case_id": "mcd_review_9825_cross_window_ambiguity",
       "dataset": "MCD-rPPG",
       "filename": "9825_USBVideo_after.avi",
       "sha256": "725083c4948a5ef3177551612c9410929483891c6f4ae3280ca15925c107c233",
       "fixture_kind": "provider_dataset_original",
       "expected_decision": "review",
-      "expected_reason_contains": "no_stable_cross_window_candidate_track",
-      "provenance": "Provider-dataset original with divergent window-level branches; retained to test non-release behavior.",
+      "expected_reason_contains": "cross_window_candidate_track",
+      "provenance": "Provider-dataset original with divergent window-level branches; retained to test review and HR withholding under cross-window candidate-track ambiguity.",
       "reference": {
         "filename": "9825_after.json",
         "sha256": "9aa90df468fab089d11386c4c28588e6dc211e53f68e734a1d4dc551379940e1"

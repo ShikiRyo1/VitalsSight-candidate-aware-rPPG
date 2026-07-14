@@ -1,0 +1,11 @@
+{
+  "name": "vitalssight-browser-validation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate:browser": "node scripts/validate_browser_product.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.61.1"
+  }
+}

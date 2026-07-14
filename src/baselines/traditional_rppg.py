@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 from sklearn.decomposition import FastICA
+from sklearn.exceptions import ConvergenceWarning
 
 from src.signal.filters import zscore
 
@@ -48,12 +51,14 @@ def pbv(rgb: np.ndarray) -> np.ndarray:
 def ica(rgb: np.ndarray) -> np.ndarray:
     c = _standardize_rgb(rgb)
     if c.shape[0] < 10:
-        return green(rgb)
+        raise ValueError("ICA requires at least 10 frames")
     model = FastICA(n_components=3, whiten="unit-variance", random_state=7, max_iter=500, tol=1e-3)
     try:
-        sources = model.fit_transform(c)
-    except Exception:
-        return green(rgb)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("error", category=ConvergenceWarning)
+            sources = model.fit_transform(c)
+    except (ConvergenceWarning, ValueError, FloatingPointError) as exc:
+        raise RuntimeError("FastICA did not produce a valid converged route") from exc
     # Choose the component with the largest temporal variance after normalization.
     idx = int(np.argmax(np.std(sources, axis=0)))
     return zscore(sources[:, idx])

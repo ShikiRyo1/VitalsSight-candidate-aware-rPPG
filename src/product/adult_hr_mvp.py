@@ -80,9 +80,11 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
         per_frame_landmarks=cfg.use_mediapipe,
     )
     detector_meta: dict[str, object] = {}
+    release_eligible_detector = False
     if cfg.use_mediapipe:
         with MediaPipeFaceLandmarkDetector() as detector:
             if detector.available:
+                release_eligible_detector = True
                 roi_ts, detector_meta = extract_face_roi_timeseries_from_video_stream(
                     path,
                     detector=detector,
@@ -90,6 +92,9 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
                     start_frame=start_frame,
                 )
                 detector_meta["detector_backend"] = detector.backend
+                detector_meta["detector_model_path"] = detector.model_path
+                detector_meta["detector_model_sha256"] = detector.model_sha256
+                detector_meta["detector_model_integrity"] = detector.model_integrity_status
             else:
                 roi_ts = extract_static_face_like_roi_timeseries(
                     path,
@@ -103,6 +108,10 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
                     "fallback_static_roi": 1.0,
                     "fallback_reason": detector.backend,
                     "detector_backend": "static_roi_fallback",
+                    "detector_model_path": detector.model_path,
+                    "detector_model_sha256": detector.model_sha256,
+                    "detector_model_integrity": detector.model_integrity_status,
+                    "detector_initialization_error": detector.initialization_error,
                     "detection_rate": float(cfg.fallback_detection_rate or 0.0),
                 }
     else:
@@ -120,6 +129,7 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
             "detection_rate": float(cfg.fallback_detection_rate if cfg.fallback_detection_rate is not None else 1.0),
         }
 
+    route_failures: list[dict[str, object]] = []
     candidates = candidate_table_from_roi_timeseries_windows(
         roi_ts,
         sample_id=path.stem,
@@ -127,6 +137,7 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
         window_sec=cfg.window_sec,
         step_sec=cfg.step_sec,
         min_window_sec=cfg.min_window_sec,
+        route_failures=route_failures,
     )
     clusters = build_roi_candidate_clusters(candidates) if not candidates.empty else pd.DataFrame()
     selected = select_roi_supported_clusters_v2(candidates) if not candidates.empty else pd.DataFrame()
@@ -135,6 +146,7 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
         selected,
         cfg=cfg,
         detection_rate=float(detector_meta.get("detection_rate", 0.0)),
+        release_eligible_detector=release_eligible_detector,
     )
     preview = first_face_preview(path, start_frame=start_frame, use_mediapipe=cfg.use_mediapipe)
     metadata = {
@@ -152,6 +164,8 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
         "n_candidates": int(len(candidates)),
         "n_clusters": int(len(clusters)),
         "n_windows": int(len(windows)),
+        "route_failure_count": len(route_failures),
+        "route_failures": route_failures,
     }
     return AdultHRMVPResult(windows=windows, candidates=candidates, clusters=clusters, roi_timeseries=roi_ts, preview_rgb=preview, metadata=metadata)
 
@@ -164,6 +178,7 @@ def candidate_table_from_roi_timeseries_windows(
     window_sec: float,
     step_sec: float,
     min_window_sec: float = 8.0,
+    route_failures: list[dict[str, object]] | None = None,
 ) -> pd.DataFrame:
     if roi_ts.empty or fps <= 0:
         return pd.DataFrame()
@@ -177,7 +192,17 @@ def candidate_table_from_roi_timeseries_windows(
     while start + min_window_sec <= max_t + 1e-6:
         end = min(start + window_sec, max_t + 1.0 / max(fps, 1e-6))
         window = roi_ts[(roi_ts["timestamp_s"] >= start) & (roi_ts["timestamp_s"] < end)].copy()
-        rows.extend(_candidate_rows_for_window(window, sample_id=f"{sample_id}_w{window_id:03d}", fps=fps, window_id=window_id, start_sec=start, end_sec=end))
+        rows.extend(
+            _candidate_rows_for_window(
+                window,
+                sample_id=f"{sample_id}_w{window_id:03d}",
+                fps=fps,
+                window_id=window_id,
+                start_sec=start,
+                end_sec=end,
+                route_failures=route_failures,
+            )
+        )
         window_id += 1
         start += step_sec
         if start >= max_t:
@@ -193,6 +218,7 @@ def _candidate_rows_for_window(
     window_id: int,
     start_sec: float,
     end_sec: float,
+    route_failures: list[dict[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for region, group in window.groupby("region", sort=True):
@@ -203,7 +229,17 @@ def _candidate_rows_for_window(
             try:
                 signal_values = method_fn(rgb)
                 estimate = estimate_hr(signal_values, fps)
-            except Exception:
+            except Exception as error:
+                if route_failures is not None:
+                    route_failures.append(
+                        {
+                            "window_id": int(window_id),
+                            "region": str(region),
+                            "method": str(method_name),
+                            "error_type": type(error).__name__,
+                            "error_message": str(error)[:240],
+                        }
+                    )
                 continue
             rows.append(
                 {
@@ -229,6 +265,7 @@ def build_release_windows(
     *,
     cfg: AdultHRMVPConfig,
     detection_rate: float,
+    release_eligible_detector: bool = True,
 ) -> pd.DataFrame:
     if candidates.empty:
         return pd.DataFrame(
@@ -270,12 +307,20 @@ def build_release_windows(
             gate = int(chosen.get("passes_roi_evidence_v2_gate", 0))
             accepted = bool(
                 gate
+                and release_eligible_detector
                 and detection_rate >= cfg.min_detection_rate
                 and group.shape[0] >= cfg.min_candidates
                 and np.isfinite(product_hr)
                 and 45.0 <= product_hr <= 180.0
             )
-            reason = "accepted" if accepted else _refusal_reason(gate=gate, detection_rate=detection_rate, candidate_count=group.shape[0], cfg=cfg, product_hr=product_hr)
+            reason = "accepted" if accepted else _refusal_reason(
+                gate=gate,
+                detection_rate=detection_rate,
+                candidate_count=group.shape[0],
+                cfg=cfg,
+                product_hr=product_hr,
+                release_eligible_detector=release_eligible_detector,
+            )
         rows.append(
             {
                 "sample_id": sample_id,
@@ -292,6 +337,7 @@ def build_release_windows(
                 "method_support": method_support,
                 "passes_roi_evidence_v2_gate": gate,
                 "detection_rate": detection_rate,
+                "release_eligible_detector": release_eligible_detector,
                 "candidate_count": int(group.shape[0]),
                 "max_power_candidate_bpm": float(peak_row["candidate_bpm"]) if peak_row is not None else np.nan,
                 "max_power_region": str(peak_row["region"]) if peak_row is not None else "",
@@ -301,7 +347,17 @@ def build_release_windows(
     return pd.DataFrame(rows)
 
 
-def _refusal_reason(*, gate: int, detection_rate: float, candidate_count: int, cfg: AdultHRMVPConfig, product_hr: float) -> str:
+def _refusal_reason(
+    *,
+    gate: int,
+    detection_rate: float,
+    candidate_count: int,
+    cfg: AdultHRMVPConfig,
+    product_hr: float,
+    release_eligible_detector: bool = True,
+) -> str:
+    if not release_eligible_detector:
+        return "face_landmark_backend_not_release_eligible"
     if detection_rate < cfg.min_detection_rate:
         return "low_face_detection_rate"
     if candidate_count < cfg.min_candidates:

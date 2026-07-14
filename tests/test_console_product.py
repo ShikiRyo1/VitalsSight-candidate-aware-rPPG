@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+import scripts.setup_runtime_assets as runtime_assets
 from src.data.video_io import get_video_metadata
 from src.product.console_api import create_app
 from src.product.console_service import (
@@ -30,6 +32,8 @@ from src.product.console_service import (
     video_preflight,
 )
 from src.product.console_store import ConsoleStore
+from src.product.adult_hr_mvp import AdultHRMVPConfig, build_release_windows
+from src.vision.face_mesh_roi import resolve_face_landmarker_model_path, validate_face_landmarker_model
 
 
 def test_non_release_never_publishes_hr() -> None:
@@ -149,6 +153,104 @@ def test_preflight_retake_report_does_not_invent_candidate_or_illumination_failu
     assert "Candidate count | 0" not in markdown
     assert "候选构建 | 未进入 | 未评估" in chinese
     assert build_report_pdf(payload).startswith(b"%PDF")
+
+
+def test_uploaded_review_uses_preflight_thresholds_and_exposes_landmark_fallback(tmp_path: Path) -> None:
+    case = make_demo_cases()[1]
+    case["illumination_score"] = 0.40
+    case["preflight"] = {
+        "overall": "pass",
+        "checks": [
+            {"check": "illumination", "value": 204.5, "unit": "luma", "status": "pass", "action": "No action required."},
+            {"check": "motion", "value": 0.993, "unit": "mean frame delta", "status": "pass", "action": "No action required."},
+            {"check": "face visibility", "value": 1.0, "unit": "fraction", "status": "pass", "action": "No action required."},
+        ],
+    }
+    case["runtime_metadata"] = {"detector_backend": "static_roi_fallback"}
+
+    plan = build_action_plan(case)
+    attribution = build_attribution(case)
+
+    illumination = next(item for item in plan["evidence"] if item["source_field"] == "preflight.checks.illumination")
+    assert illumination["status"] == "within target"
+    assert not [item for item in plan["steps"] if item["source_field"] == "illumination_score"]
+    assert plan["steps"][0]["source_field"] == "runtime_metadata.detector_backend"
+    illumination_factor = next(item for item in attribution["all_factors"] if item["factor"] == "Illumination")
+    assert illumination_factor["status"] == "supports release"
+    assert illumination_factor["source_field"] == "preflight.checks.illumination"
+
+
+def test_face_landmarker_model_resolution_prefers_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    model = tmp_path / "face_landmarker.task"
+    model.write_bytes(b"model")
+    monkeypatch.setenv("MEDIAPIPE_FACE_LANDMARKER_TASK", str(model))
+
+    assert resolve_face_landmarker_model_path() == model.resolve()
+
+
+def test_face_landmarker_model_rejects_unpinned_asset(tmp_path: Path) -> None:
+    model = tmp_path / "face_landmarker.task"
+    model.write_bytes(b"not-the-pinned-runtime-model")
+
+    with pytest.raises(ValueError, match="SHA256 mismatch"):
+        validate_face_landmarker_model(model)
+
+
+def test_runtime_asset_installer_accepts_a_verified_offline_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "source.task"
+    source.write_bytes(b"pinned-test-model")
+    expected = hashlib.sha256(source.read_bytes()).hexdigest()
+    monkeypatch.setattr(runtime_assets, "FACE_LANDMARKER_MODEL_SHA256", expected)
+    target = tmp_path / "runtime" / "face_landmarker.task"
+
+    result = runtime_assets.install_model(target, source=source)
+
+    assert result["status"] == "installed"
+    assert target.read_bytes() == source.read_bytes()
+    assert runtime_assets.install_model(target, source=source)["status"] == "already_installed"
+
+
+def test_static_roi_candidate_evidence_cannot_enter_release_state() -> None:
+    candidates = pd.DataFrame(
+        [
+            {
+                "sample_id": "fixture_w000",
+                "window_id": 0,
+                "start_sec": 0.0,
+                "end_sec": 20.0,
+                "region": f"region_{index}",
+                "method": "GREEN",
+                "candidate_bpm": 72.0,
+                "power": 1.0,
+                "confidence": 0.9,
+            }
+            for index in range(6)
+        ]
+    )
+    selected = pd.DataFrame(
+        [
+            {
+                "sample_id": "fixture_w000",
+                "cluster_bpm": 72.0,
+                "roi_evidence_v2_score": 0.9,
+                "roi_support": 6,
+                "method_support": 1,
+                "passes_roi_evidence_v2_gate": 1,
+            }
+        ]
+    )
+
+    windows = build_release_windows(
+        candidates,
+        selected,
+        cfg=AdultHRMVPConfig(min_candidates=6),
+        detection_rate=1.0,
+        release_eligible_detector=False,
+    )
+
+    assert windows.loc[0, "decision"] == "review"
+    assert pd.isna(windows.loc[0, "product_hr_bpm"])
+    assert windows.loc[0, "refusal_reason"] == "face_landmark_backend_not_release_eligible"
 
 
 def test_demo_quality_snapshots_cover_pass_warn_and_fail() -> None:
@@ -463,12 +565,17 @@ def test_workspace_navigation_resets_the_main_scroll_position() -> None:
     source = (Path(__file__).resolve().parents[1] / "app" / "product_console.py").read_text(encoding="utf-8")
 
     assert 'vs_rendered_section' in source
+    assert '"vs_rendered_section": "Overview"' in source
     assert 'vs_navigation_nonce' in source
     assert 'const navigationNonce = __NAVIGATION_NONCE__' in source
     assert 'querySelector(\'[data-testid="stMain"]\')' in source
     assert "main.scrollTo({ top: 0, left: 0" in source
     assert "closeMobileSidebar" in source
     assert "window.parent.innerWidth > 900" in source
+    assert "window.setInterval" not in source
+    assert "}, 150);" in source
+    assert "st.iframe(" in source
+    assert "streamlit.components.v1" not in source
 
 
 def test_assessment_reset_rebuilds_the_upload_widget() -> None:
