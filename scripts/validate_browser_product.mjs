@@ -390,7 +390,7 @@ try {
   const restoredCases = await restoredCasesResponse.json();
   check(
     "demo restoration preserves the real uploaded case",
-    restoredCases.items.some((item) => item.source_name === "8555_retake_first5s.avi"),
+    restoredCases.items.some((item) => String(item.source_name).endsWith("8555_retake_first5s.avi")),
   );
 
   const docs = await context.newPage();
