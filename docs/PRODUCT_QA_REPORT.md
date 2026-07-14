@@ -32,7 +32,7 @@ Seven hash-locked MCD-rPPG fixtures form a post hoc curated regression/conforman
 
 The released fixture produced 75.0628 BPM. A reference-only Lead-II ECG comparison produced 77.1208 BPM, an absolute difference of 2.0581 BPM. ECG/reference HR was not passed to candidate construction, selection, or gating. The fixtures were curated for behavioral conformance, not sampled as an independent accuracy cohort.
 
-Evidence: `output/real_video_product_validation_20260715_iteration83/`. The v2 fixture contract preserves the frozen state expectation and HR-withholding rule while defining the 9825 review invariant at the mechanism level (`cross_window_candidate_track`), because both no-stable-track and competing-track subtypes require the same non-release action.
+Evidence is written to the operator-selected `output/real_video_product_validation_<run>/` directory. The v2 fixture contract preserves the frozen state expectation and HR-withholding rule while defining the 9825 review invariant at the mechanism level (`cross_window_candidate_track`), because both no-stable-track and competing-track subtypes require the same non-release action.
 
 ## Real-browser checks
 
@@ -50,7 +50,7 @@ Playwright exercised the final service at 1440 x 1000 and in a separate fresh 39
 
 The harness refuses to run against a dirty working tree or a commit argument that differs from the checked-out Git commit. The manifest records both the commit and Git tree, so the browser evidence is source-bound rather than a free-form session label.
 
-The final desktop release case reported 75.1 BPM and an acquisition-gate state of Passed. The final review and retake cases withheld HR. The browser console, page-error stream and unexpected HTTP-response error list were empty. Screenshots, DOM text snapshots, downloads, database and logs are retained under `output/browser_validation_20260715_iteration84/`.
+The final desktop release case reported 75.1 BPM and an acquisition-gate state of Passed. The final review and retake cases withheld HR. The browser console, page-error stream and unexpected HTTP-response error list were empty. Screenshots, DOM text snapshots, downloads, database and logs are retained under the operator-selected `output/browser_validation_<run>/` directory.
 
 ## Defects repaired
 
