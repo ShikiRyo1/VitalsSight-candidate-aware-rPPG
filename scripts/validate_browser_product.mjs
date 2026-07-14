@@ -352,8 +352,9 @@ try {
   await saveState(page, "09_help_and_settings");
   text = await bodyText(page);
   check("role-based guide names required input action output and next destination", text.includes("Each step states the required input"));
-  check("capture guide exposes a complete start action", await page.getByRole("button", { name: "Start this workflow", exact: true }).isVisible());
-  await page.getByRole("button", { name: "Start this workflow", exact: true }).click();
+  const guideStart = page.getByRole("button", { name: /Start this workflow/ });
+  check("capture guide exposes a complete start action", await guideStart.isVisible());
+  await guideStart.click();
   await waitForHeading(page, "New assessment");
   await page.getByText("Guided assessment opened at purpose and consent.", { exact: true }).first().waitFor({ state: "visible", timeout: 15000 });
   check("guided workflow start action navigates to assessment input", true);
@@ -382,7 +383,7 @@ try {
     integratedReport.audit_events.some((event) => event.event_type === "integration.payload_validated"),
   );
   await gotoWorkspace(page, "Help & settings");
-  await page.getByRole("button", { name: "Restore built-in demo cases", exact: true }).click();
+  await page.getByRole("button", { name: /Restore built-in demo cases/ }).click();
   await page.getByText("Built-in cases restored without deleting user cases.", { exact: true }).first().waitFor({ state: "visible", timeout: 15000 });
   const restoredCasesResponse = await context.request.get(`${apiUrl}/api/v1/cases`);
   check("restored case registry endpoint responds", restoredCasesResponse.ok(), restoredCasesResponse.status());
