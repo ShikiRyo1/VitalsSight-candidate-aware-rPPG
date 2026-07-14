@@ -631,6 +631,9 @@ def test_workspace_navigation_resets_the_main_scroll_position() -> None:
     assert "main.scrollTo({ top: 0, left: 0" in source
     assert "closeMobileSidebar" in source
     assert "window.parent.innerWidth > 900" in source
+    assert "sidebar.getAttribute('aria-expanded') ?? sidebar.getAttribute('aria')" in source
+    assert "collapse.innerText.includes('keyboard_double_arrow_left')" in source
+    assert "let sidebarCloseRequested = false" in source
     assert "window.setInterval" not in source
     assert "}, 150);" in source
     assert "st.iframe(" in source

@@ -1377,16 +1377,24 @@ def _reset_main_scroll(navigation_nonce: int) -> None:
     script = """
         <script>
         const navigationNonce = __NAVIGATION_NONCE__;
+        let sidebarCloseRequested = false;
         const resetMainScroll = () => {
             const main = window.parent.document.querySelector('[data-testid="stMain"]');
             if (main) main.scrollTo({ top: 0, left: 0, behavior: 'instant' });
         };
         const closeMobileSidebar = () => {
-            if (window.parent.innerWidth > 900) return;
+            if (window.parent.innerWidth > 900 || sidebarCloseRequested) return;
             const sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
-            if (!sidebar || sidebar.getAttribute('aria-expanded') !== 'true') return;
+            if (!sidebar) return;
+            const expanded = sidebar.getAttribute('aria-expanded') ?? sidebar.getAttribute('aria');
+            const rect = sidebar.getBoundingClientRect();
+            const style = window.parent.getComputedStyle(sidebar);
+            const visiblyOpen = rect.width > 120 && rect.right > 0 && style.visibility !== 'hidden';
+            if (expanded === 'false' || !visiblyOpen) return;
             const collapse = sidebar.querySelector('[data-testid="stSidebarCollapseButton"] button');
-            if (collapse) collapse.click();
+            if (!collapse || !collapse.innerText.includes('keyboard_double_arrow_left')) return;
+            sidebarCloseRequested = true;
+            collapse.click();
         };
         resetMainScroll();
         window.requestAnimationFrame(() => {
