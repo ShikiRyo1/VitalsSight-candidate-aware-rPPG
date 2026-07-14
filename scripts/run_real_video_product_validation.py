@@ -56,6 +56,7 @@ SNAPSHOT_PATHS = (
     "src/baselines/traditional_rppg.py",
     "src/data/video_io.py",
     "src/product/adult_hr_mvp.py",
+    "src/product/build_identity.py",
     "src/product/console_api.py",
     "src/product/console_service.py",
     "src/vision/face_mesh_roi.py",

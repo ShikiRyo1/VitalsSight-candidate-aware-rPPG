@@ -21,6 +21,7 @@ from src.product.console_service import (
     run_uploaded_video,
     video_preflight,
 )
+from src.product.build_identity import source_build_identity
 from src.product.console_store import ConsoleStore
 
 
@@ -65,6 +66,7 @@ def create_app(db_path: str | Path | None = None, *, seed_demo: bool = True) -> 
             "status": "ok",
             "service": "vitalssight-console",
             "report_version": REPORT_VERSION,
+            "build": source_build_identity(),
             "claim_boundary": CLAIM_BOUNDARY,
         }
 

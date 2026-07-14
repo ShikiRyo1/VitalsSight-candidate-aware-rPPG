@@ -37,6 +37,7 @@ from src.product.console_service import (
     video_preflight,
 )
 from src.product.console_store import ConsoleStore
+from src.product.build_identity import source_build_identity
 
 
 DB_PATH = Path(os.getenv("VITALSSIGHT_DB_PATH", PROJECT / "runtime" / "vitalsight_console.db"))
@@ -119,6 +120,11 @@ def run() -> None:
     st.sidebar.markdown(
         f"<div class='vs-boundary-small'>{_escape(_ui('No diagnosis, emergency alert, or autonomous clinical release.', '不用于诊断、急救告警或临床自主放行。'))}</div>",
         unsafe_allow_html=True,
+    )
+    build = source_build_identity()
+    st.sidebar.caption(
+        f"Build {str(build['commit'])[:12]} · Tree {str(build['tree'])[:12]} · "
+        f"{'dirty' if build['dirty'] else 'clean'}"
     )
 
     _header(section)
@@ -807,7 +813,7 @@ def _reports(store: ConsoleStore) -> None:
     c3.download_button(_ui("Review Markdown", "复核 Markdown"), markdown.encode("utf-8"), file_name=f"{case['display_id']}_evidence_report.md", mime="text/markdown", icon=":material/article:", width="stretch")
     c4.download_button(
         _ui("Case CSV", "案例 CSV"),
-        pd.DataFrame([case]).drop(columns=[col for col in ["candidates", "trend_bpm", "preflight", "window_results"] if col in case]).to_csv(index=False).encode("utf-8-sig"),
+        pd.DataFrame([payload["case"]]).drop(columns=[col for col in ["candidates", "trend_bpm", "preflight", "window_results"] if col in payload["case"]]).to_csv(index=False).encode("utf-8-sig"),
         file_name=f"{case['display_id']}_case.csv",
         mime="text/csv",
         icon=":material/table_view:",

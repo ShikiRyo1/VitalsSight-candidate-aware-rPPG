@@ -16,7 +16,7 @@ Verification date: 2026-07-15
 
 ## Automated checks
 
-The full suite contains 46 passing tests. It covers strict non-release HR withholding, finite release values, candidate-track aggregation, evidence attribution, quality-gate semantics, SQLite persistence, bilingual reports, preflight and runtime failures, API endpoints, raw-video deletion, uploader reset, sidebar recovery, navigation behavior, runtime-model installation and provenance, explicit rejection of non-converged ICA routes, and the rule that static-ROI fallback evidence can never enter a release state. Dedicated regressions confirm that a preflight `retake` report does not mislabel an unentered candidate stage or a passing luma check as a failure, that a failed ICA route is not relabelled as an independent method by silently returning GREEN, and that an unpinned Face Landmarker asset fails runtime integrity validation.
+The full suite contains 49 passing tests. It covers strict non-release HR withholding, finite release values, candidate-track aggregation, evidence attribution, quality-gate semantics, SQLite persistence, bilingual reports, preflight and runtime failures, API endpoints, raw-video deletion, uploader reset, sidebar recovery, navigation behavior, runtime-model installation and provenance, explicit rejection of non-converged ICA routes, and the rule that static-ROI fallback evidence can never enter a release state. Dedicated regressions confirm that a preflight `retake` report does not mislabel an unentered candidate stage or a passing luma check as a failure, that a failed ICA route is not relabelled as an independent method by silently returning GREEN, that an unpinned Face Landmarker asset fails runtime integrity validation, that legacy Face Mesh cannot enter the release path, and that exported reports redact legacy absolute paths.
 
 ```bash
 .venv/Scripts/python -m pytest -q
@@ -24,7 +24,7 @@ The full suite contains 46 passing tests. It covers strict non-release HR withho
 git diff --check
 ```
 
-Observed result: `46 passed`; compile and whitespace checks passed.
+Observed result: `49 passed`; compile and whitespace checks passed.
 
 ## Real-video implementation conformance
 
@@ -48,7 +48,7 @@ Playwright exercised the final service at 1440 x 1000 and in a separate fresh 39
 - sidebar restoration on desktop and in a fresh mobile session, plus automatic mobile close after navigation;
 - no page-level horizontal overflow at 390 px and zero browser-console errors.
 
-The harness refuses to run against a dirty working tree or a commit argument that differs from the checked-out Git commit. The manifest records both the commit and Git tree, so the browser evidence is source-bound rather than a free-form session label.
+The harness refuses to run against a dirty working tree or a commit argument that differs from the checked-out Git commit. Both the API and Streamlit service publish their own build commit/tree, and the harness compares those identities with the validating checkout before exercising the workflow. The manifest records the validated service build, commit, and Git tree, so the browser evidence is source-bound rather than a free-form session label.
 
 The final desktop release case reported 75.1 BPM and an acquisition-gate state of Passed. The final review and retake cases withheld HR. The browser console, page-error stream and unexpected HTTP-response error list were empty. Screenshots, DOM text snapshots, downloads, database and logs are retained under the operator-selected `output/browser_validation_<run>/` directory.
 

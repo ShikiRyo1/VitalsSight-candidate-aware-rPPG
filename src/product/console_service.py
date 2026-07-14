@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 from io import BytesIO
 import json
 import math
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
+import re
 from typing import Any, Iterable
 from uuid import uuid4
 
@@ -232,6 +233,26 @@ def json_safe(value: Any) -> Any:
         return value if math.isfinite(value) else None
     if isinstance(value, Path):
         return str(value)
+    return value
+
+
+_WINDOWS_ABSOLUTE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
+_PRIVATE_POSIX_PATH = re.compile(r"^/(?:home|Users|private|tmp)/")
+
+
+def sanitize_report_value(value: Any) -> Any:
+    """Remove machine-local absolute paths from exported report payloads."""
+
+    if isinstance(value, dict):
+        return {str(key): sanitize_report_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [sanitize_report_value(item) for item in value]
+    if isinstance(value, str):
+        stripped = value.strip()
+        if _WINDOWS_ABSOLUTE_PATH.match(stripped):
+            return PureWindowsPath(stripped).name or "[local path redacted]"
+        if _PRIVATE_POSIX_PATH.match(stripped):
+            return PurePosixPath(stripped).name or "[local path redacted]"
     return value
 
 
@@ -1828,9 +1849,7 @@ def run_uploaded_video(
                 "detector_model_integrity": detector_meta.get("detector_model_integrity"),
                 "detector_initialization_error": detector_meta.get("detector_initialization_error") or None,
                 "fallback_static_roi": detector_meta.get("fallback_static_roi", 0.0),
-                "release_eligible_detector": bool(
-                    detector_meta.get("detector_backend") in {"mediapipe_face_landmarker_task", "mediapipe_face_mesh"}
-                ),
+                "release_eligible_detector": bool(detector_meta.get("release_eligible_detector", False)),
                 "route_failure_count": result.metadata.get("route_failure_count", 0),
                 "route_failures": result.metadata.get("route_failures", []),
                 "analysis_fps": result.metadata.get("analysis_fps"),
@@ -1863,15 +1882,15 @@ def build_report_payload(
     review: dict[str, Any] | None = None,
     audit_events: Iterable[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    normalized = ensure_output_contract(case)
+    normalized = sanitize_report_value(ensure_output_contract(case))
     return {
         "report_version": REPORT_VERSION,
         "generated_at": utc_now(),
         "case": normalized,
         "attribution": build_attribution(normalized),
         "action_plan": build_action_plan(normalized),
-        "review": json_safe(review or {}),
-        "audit_events": json_safe(list(audit_events or [])),
+        "review": sanitize_report_value(json_safe(review or {})),
+        "audit_events": sanitize_report_value(json_safe(list(audit_events or []))),
         "claim_boundary": CLAIM_BOUNDARY,
     }
 

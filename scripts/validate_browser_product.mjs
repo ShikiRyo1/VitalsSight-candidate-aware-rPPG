@@ -64,6 +64,26 @@ async function saveState(page, stem) {
   await fs.writeFile(path.join(finalRun, `${stem}.txt`), await bodyText(page), "utf8");
 }
 
+async function regularFiles(root) {
+  const files = [];
+  async function visit(current) {
+    let entries;
+    try {
+      entries = await fs.readdir(current, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code === "ENOENT") return;
+      throw error;
+    }
+    for (const entry of entries) {
+      const target = path.join(current, entry.name);
+      if (entry.isDirectory()) await visit(target);
+      else if (entry.isFile()) files.push(target);
+    }
+  }
+  await visit(root);
+  return files;
+}
+
 async function waitForHeading(page, name, timeout = 30000) {
   await page.getByRole("heading", { name, exact: true }).first().waitFor({ state: "visible", timeout });
   await page.getByRole("button", { name: "Stop", exact: true }).waitFor({ state: "hidden", timeout: 120000 });
@@ -188,6 +208,14 @@ let mobileContext;
 
 try {
   await openEnglish(page);
+  const healthResponse = await context.request.get(`${apiUrl}/health`);
+  check("API health endpoint responds", healthResponse.ok(), healthResponse.status());
+  const health = await healthResponse.json();
+  check("API service commit matches validation commit", health.build?.commit === actualCommit, health.build?.commit);
+  check("API service tree matches validation tree", health.build?.tree === gitTree, health.build?.tree);
+  check("API service reports a clean source tree", health.build?.dirty === false, health.build?.dirty);
+  const buildLabel = `Build ${actualCommit.slice(0, 12)} · Tree ${gitTree.slice(0, 12)} · clean`;
+  check("Streamlit service build identity matches validation source", (await bodyText(page)).includes(buildLabel), buildLabel);
   check("desktop viewport has no horizontal overflow", await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2));
   await saveState(page, "01_overview_desktop");
 
@@ -198,6 +226,12 @@ try {
   await page.getByRole("button", { name: /keyboard_double_arrow_right/ }).click();
   await page.getByText("Evidence operations console", { exact: true }).first().waitFor({ state: "visible", timeout: 10000 });
   await saveState(page, "02_sidebar_restored");
+
+  await gotoWorkspace(page, "New assessment");
+  await page.getByRole("button", { name: /Run assessment/ }).click();
+  await page.getByText("Confirm processing consent before running the assessment.", { exact: true }).waitFor({ state: "visible", timeout: 15000 });
+  check("unconsented assessment returns an explicit warning", true);
+  check("unconsented assessment produces no output", (await bodyText(page)).includes("No result has been generated in this session."));
 
   let text = await runAssessment(page, "8555_IriunWebcam_before.avi", "Release");
   check("release evidence action present", text.includes("Retain the evidence packet"));
@@ -298,6 +332,11 @@ try {
   text = await bodyText(page);
   check("role-based guide names required input action output and next destination", text.includes("Each step states the required input"));
   check("capture guide exposes a complete start action", await page.getByRole("button", { name: "Start this workflow", exact: true }).isVisible());
+  await page.getByRole("button", { name: "Start this workflow", exact: true }).click();
+  await waitForHeading(page, "New assessment");
+  await page.getByText("Guided assessment opened at purpose and consent.", { exact: true }).waitFor({ state: "visible", timeout: 15000 });
+  check("guided workflow start action navigates to assessment input", true);
+  await gotoWorkspace(page, "Help & settings");
   const operator = page.getByRole("textbox", { name: "Operator name" });
   await operator.fill("Browser QA operator");
   await page.getByRole("button", { name: /Save operator/ }).click();
@@ -362,6 +401,11 @@ try {
   check("mobile viewport has no horizontal overflow", await mobilePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2));
   await saveState(mobilePage, "12_mobile_new_assessment");
 
+  check(
+    "tested delete-after-analysis mode leaves no raw upload file",
+    (await regularFiles(path.join(outputRoot, "uploads"))).length === 0,
+  );
+
   check("no browser console errors", consoleErrors.length === 0, JSON.stringify(consoleErrors));
   check("no page errors", pageErrors.length === 0, JSON.stringify(pageErrors));
   check("no unexpected HTTP response errors", responseErrors.length === 0, JSON.stringify(responseErrors));
@@ -372,6 +416,7 @@ try {
     git_commit: actualCommit,
     git_tree: gitTree,
     working_tree_clean: true,
+    service_build: health.build,
     base_url: baseUrl,
     api_url: apiUrl,
     viewports: ["1440x1000", "390x844"],

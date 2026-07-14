@@ -12,6 +12,7 @@ from src.data.video_io import get_video_metadata, iter_video_frames
 from src.selection.roi_evidence import build_roi_candidate_clusters, select_roi_supported_clusters_v2
 from src.signal.estimate import estimate_hr
 from src.vision.face_mesh_roi import (
+    FACE_LANDMARKER_MODEL_SHA256,
     FaceRegionMask,
     MediaPipeFaceLandmarkDetector,
     TCM_INTERPRETIVE_LABELS,
@@ -50,6 +51,15 @@ class AdultHRMVPResult:
     metadata: dict[str, object]
 
 
+def detector_is_release_eligible(detector: MediaPipeFaceLandmarkDetector) -> bool:
+    return bool(
+        detector.available
+        and detector.backend == "mediapipe_face_landmarker_task"
+        and detector.model_integrity_status == "verified_pinned_sha256"
+        and detector.model_sha256 == FACE_LANDMARKER_MODEL_SHA256
+    )
+
+
 def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | None = None) -> AdultHRMVPResult:
     """Run the product-facing adult HR MVP pipeline on one RGB face video.
 
@@ -84,7 +94,7 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
     if cfg.use_mediapipe:
         with MediaPipeFaceLandmarkDetector() as detector:
             if detector.available:
-                release_eligible_detector = True
+                release_eligible_detector = detector_is_release_eligible(detector)
                 roi_ts, detector_meta = extract_face_roi_timeseries_from_video_stream(
                     path,
                     detector=detector,
@@ -95,6 +105,7 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
                 detector_meta["detector_model_path"] = detector.model_path
                 detector_meta["detector_model_sha256"] = detector.model_sha256
                 detector_meta["detector_model_integrity"] = detector.model_integrity_status
+                detector_meta["release_eligible_detector"] = release_eligible_detector
             else:
                 roi_ts = extract_static_face_like_roi_timeseries(
                     path,
@@ -112,6 +123,7 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
                     "detector_model_sha256": detector.model_sha256,
                     "detector_model_integrity": detector.model_integrity_status,
                     "detector_initialization_error": detector.initialization_error,
+                    "release_eligible_detector": False,
                     "detection_rate": float(cfg.fallback_detection_rate or 0.0),
                 }
     else:
@@ -127,6 +139,7 @@ def run_adult_hr_video(video_path: str | Path, *, config: AdultHRMVPConfig | Non
             "fallback_static_roi": 1.0,
             "detector_backend": "static_roi_requested",
             "detection_rate": float(cfg.fallback_detection_rate if cfg.fallback_detection_rate is not None else 1.0),
+            "release_eligible_detector": False,
         }
 
     route_failures: list[dict[str, object]] = []

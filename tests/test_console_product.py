@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -32,7 +33,8 @@ from src.product.console_service import (
     video_preflight,
 )
 from src.product.console_store import ConsoleStore
-from src.product.adult_hr_mvp import AdultHRMVPConfig, build_release_windows
+from src.product.adult_hr_mvp import AdultHRMVPConfig, build_release_windows, detector_is_release_eligible
+from src.product.build_identity import source_build_identity
 from src.vision.face_mesh_roi import resolve_face_landmarker_model_path, validate_face_landmarker_model
 
 
@@ -251,6 +253,63 @@ def test_static_roi_candidate_evidence_cannot_enter_release_state() -> None:
     assert windows.loc[0, "decision"] == "review"
     assert pd.isna(windows.loc[0, "product_hr_bpm"])
     assert windows.loc[0, "refusal_reason"] == "face_landmark_backend_not_release_eligible"
+
+
+def test_only_verified_task_detector_is_release_eligible() -> None:
+    verified = SimpleNamespace(
+        available=True,
+        backend="mediapipe_face_landmarker_task",
+        model_integrity_status="verified_pinned_sha256",
+        model_sha256=runtime_assets.FACE_LANDMARKER_MODEL_SHA256,
+    )
+    legacy = SimpleNamespace(
+        available=True,
+        backend="mediapipe_face_mesh",
+        model_integrity_status="not_applicable_builtin_face_mesh",
+        model_sha256=None,
+    )
+    wrong_hash = SimpleNamespace(
+        available=True,
+        backend="mediapipe_face_landmarker_task",
+        model_integrity_status="verified_pinned_sha256",
+        model_sha256="0" * 64,
+    )
+
+    assert detector_is_release_eligible(verified)
+    assert not detector_is_release_eligible(legacy)
+    assert not detector_is_release_eligible(wrong_hash)
+
+
+def test_report_payload_redacts_legacy_absolute_paths() -> None:
+    case = make_demo_cases()[1]
+    case["runtime_metadata"] = {
+        "detector_model_path": r"G:\\private\\models\\face_landmarker.task",
+        "detector_backend": "static_roi_fallback",
+    }
+    case["preflight"] = {"face_detector_source": "/home/research/private/face_landmarker.task"}
+
+    payload = build_report_payload(case)
+    serialized = json.dumps(payload, ensure_ascii=False)
+    markdown = build_report_markdown(payload)
+    pdf = build_report_pdf(payload)
+    csv = pd.DataFrame([payload["case"]]).to_csv(index=False)
+
+    assert r"G:\\private" not in serialized
+    assert "/home/research" not in serialized
+    assert r"G:\\private" not in markdown
+    assert "/home/research" not in markdown
+    assert b"G:\\private" not in pdf
+    assert r"G:\\private" not in csv
+    assert "/home/research" not in csv
+    assert payload["case"]["runtime_metadata"]["detector_model_path"] == "face_landmarker.task"
+
+
+def test_source_build_identity_exposes_commit_and_tree() -> None:
+    build = source_build_identity()
+
+    assert len(build["commit"]) == 40
+    assert len(build["tree"]) == 40
+    assert build["source"] == "git"
 
 
 def test_demo_quality_snapshots_cover_pass_warn_and_fail() -> None:
