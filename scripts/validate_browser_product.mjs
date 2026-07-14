@@ -221,19 +221,20 @@ try {
   await saveState(page, "05_real_video_review");
   await gotoWorkspace(page, "Review queue");
   check("review queue exposes withheld output", (await bodyText(page)).includes("Withheld"));
-  const assignee = page.getByRole("textbox", { name: "Assignee" });
+  const reviewForm = page.getByTestId("stForm");
+  const assignee = reviewForm.getByRole("textbox", { name: "Assignee" });
   await assignee.fill("Browser validation reviewer");
-  const note = page.getByRole("textbox", { name: "Reviewer note" });
+  const note = reviewForm.getByRole("textbox", { name: "Reviewer note" });
   await note.fill("Real-video browser replay: competing tracks inspected; output remains withheld for research review.");
-  await page.getByRole("button", { name: /Save review/ }).click();
+  await reviewForm.getByRole("button", { name: /Save review/ }).click();
   await page.getByText("Review record saved with an audit event.").first().waitFor({ state: "visible", timeout: 20000 });
-  await page.getByRole("combobox", { name: "Status", exact: true }).selectOption("in_review");
-  await page.getByRole("combobox", { name: "Resolution", exact: true }).selectOption("retain_for_research_review");
-  await page.getByRole("button", { name: /Save review/ }).click();
+  await reviewForm.getByRole("combobox", { name: "Status", exact: true }).selectOption("in_review");
+  await reviewForm.getByRole("combobox", { name: "Resolution", exact: true }).selectOption("retain_for_research_review");
+  await reviewForm.getByRole("button", { name: /Save review/ }).click();
   await page.getByText("Review record saved with an audit event.").first().waitFor({ state: "visible", timeout: 20000 });
   check(
     "review resolution persists after rerender",
-    (await page.getByRole("combobox", { name: "Resolution", exact: true }).inputValue()) === "retain_for_research_review",
+    (await reviewForm.getByRole("combobox", { name: "Resolution", exact: true }).inputValue()) === "retain_for_research_review",
   );
   await page.getByText("Audit trail", { exact: true }).first().click();
   const reviewAuditCell = page.getByText("review.updated", { exact: true });
