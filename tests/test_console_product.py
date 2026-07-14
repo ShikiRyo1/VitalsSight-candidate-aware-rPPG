@@ -290,7 +290,10 @@ def test_report_payload_redacts_legacy_absolute_paths() -> None:
     case["technical_error"] = {
         "windows": r"OpenCV could not open video: G:\\private\\uploads\\clip.avi",
         "unc": r"Decoder failed at \\server\share\private\clip.avi",
+        "unc_root": r"Decoder failed at \\server\share",
         "posix": "Decoder failed at /mnt/private/session/clip.avi",
+        "posix_root": "Decoder failed at /tmp",
+        "url": "Documentation: https://example.org/api/v1",
     }
 
     payload = build_report_payload(case)
@@ -309,7 +312,9 @@ def test_report_payload_redacts_legacy_absolute_paths() -> None:
     assert r"G:\\private" not in serialized
     assert r"\server\share" not in serialized
     assert "/mnt/private" not in serialized
-    assert serialized.count("[local path redacted]") >= 3
+    assert "/tmp" not in serialized
+    assert "https://example.org/api/v1" in serialized
+    assert serialized.count("[local path redacted]") >= 5
     assert payload["case"]["runtime_metadata"]["detector_model_path"] == "face_landmarker.task"
 
 

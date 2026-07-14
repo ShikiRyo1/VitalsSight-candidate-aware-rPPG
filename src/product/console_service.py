@@ -240,9 +240,15 @@ _WINDOWS_ABSOLUTE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
 _UNC_ABSOLUTE_PATH = re.compile(r"^\\\\[^\\/]+[\\/][^\\/]+")
 _POSIX_ABSOLUTE_PATH = re.compile(r"^/")
 _WINDOWS_PATH_FRAGMENT = re.compile(
-    r"(?i)(?<![A-Za-z0-9])(?:[A-Z]:[\\/]|\\\\[^\\/\r\n]+[\\/][^\\/\r\n]+[\\/])[^\r\n]*"
+    r"(?i)(?<![A-Za-z0-9])(?:"
+    r"[A-Z]:[\\/]+[^\\/\s\"'<>|]+(?:[\\/]+[^\\/\s\"'<>|]+)*"
+    r"|\\\\[^\\/\s\"'<>|]+[\\/]+[^\\/\s\"'<>|]+"
+    r"(?:[\\/]+[^\\/\s\"'<>|]+)*"
+    r")"
 )
-_POSIX_PATH_FRAGMENT = re.compile(r"(?<![A-Za-z0-9:])/(?:[^/\s]+/)+[^\r\n]*")
+_POSIX_PATH_FRAGMENT = re.compile(
+    r"(?<![A-Za-z0-9:/])/(?!/)[^/\s\"'<>|]+(?:/[^/\s\"'<>|]+)*"
+)
 
 
 def sanitize_report_value(value: Any) -> Any:
