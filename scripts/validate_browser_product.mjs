@@ -229,7 +229,10 @@ try {
 
   await gotoWorkspace(page, "New assessment");
   await page.getByRole("button", { name: /Run assessment/ }).click();
-  await page.getByText("Confirm processing consent before running the assessment.", { exact: true }).waitFor({ state: "visible", timeout: 15000 });
+  await page.getByTestId("stAlertContentWarning").getByText(
+    "Confirm processing consent before running the assessment.",
+    { exact: true },
+  ).waitFor({ state: "visible", timeout: 15000 });
   check("unconsented assessment returns an explicit warning", true);
   check("unconsented assessment produces no output", (await bodyText(page)).includes("No result has been generated in this session."));
 
@@ -286,7 +289,7 @@ try {
   await page.getByRole("button", { name: /Build report/ }).click();
   await waitForHeading(page, "Reports");
   await page.getByRole("button", { name: /Report PDF/ }).waitFor({ state: "visible", timeout: 60000 });
-  await page.getByText("Implementation provenance", { exact: true }).waitFor({ state: "visible", timeout: 30000 });
+  await page.getByText("Implementation provenance", { exact: true }).first().waitFor({ state: "visible", timeout: 30000 });
   text = await bodyText(page);
   check("retake report page exposes implementation provenance", text.includes("Implementation provenance"));
   for (const [tabName, expectedText] of [
@@ -334,7 +337,7 @@ try {
   check("capture guide exposes a complete start action", await page.getByRole("button", { name: "Start this workflow", exact: true }).isVisible());
   await page.getByRole("button", { name: "Start this workflow", exact: true }).click();
   await waitForHeading(page, "New assessment");
-  await page.getByText("Guided assessment opened at purpose and consent.", { exact: true }).waitFor({ state: "visible", timeout: 15000 });
+  await page.getByText("Guided assessment opened at purpose and consent.", { exact: true }).first().waitFor({ state: "visible", timeout: 15000 });
   check("guided workflow start action navigates to assessment input", true);
   await gotoWorkspace(page, "Help & settings");
   const operator = page.getByRole("textbox", { name: "Operator name" });
@@ -362,7 +365,7 @@ try {
   );
   await gotoWorkspace(page, "Help & settings");
   await page.getByRole("button", { name: "Restore built-in demo cases", exact: true }).click();
-  await page.getByText("Built-in cases restored without deleting user cases.", { exact: true }).waitFor({ state: "visible", timeout: 15000 });
+  await page.getByText("Built-in cases restored without deleting user cases.", { exact: true }).first().waitFor({ state: "visible", timeout: 15000 });
   const restoredCasesResponse = await context.request.get(`${apiUrl}/api/v1/cases`);
   check("restored case registry endpoint responds", restoredCasesResponse.ok(), restoredCasesResponse.status());
   const restoredCases = await restoredCasesResponse.json();
