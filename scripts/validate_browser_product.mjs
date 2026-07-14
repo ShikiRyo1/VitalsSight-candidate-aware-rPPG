@@ -195,6 +195,15 @@ async function downloadByButton(page, buttonName, expectedExtension) {
   return target;
 }
 
+async function chooseComboboxOption(page, combobox, optionName) {
+  await combobox.waitFor({ state: "visible", timeout: 10000 });
+  await combobox.focus();
+  await combobox.press("ArrowDown");
+  const option = page.getByRole("option", { name: optionName, exact: true });
+  await option.waitFor({ state: "visible", timeout: 10000 });
+  await option.click();
+}
+
 const browser = await chromium.launch({
   headless: true,
 });
@@ -265,8 +274,16 @@ try {
   await note.fill("Real-video browser replay: competing tracks inspected; output remains withheld for research review.");
   await reviewForm.getByRole("button", { name: /Save review/ }).click();
   await page.getByText("Review record saved with an audit event.").first().waitFor({ state: "visible", timeout: 20000 });
-  await reviewForm.getByRole("combobox", { name: "Status", exact: true }).selectOption("in_review");
-  await reviewForm.getByRole("combobox", { name: "Resolution", exact: true }).selectOption("retain_for_research_review");
+  await chooseComboboxOption(
+    page,
+    reviewForm.getByRole("combobox", { name: "Status", exact: true }),
+    "in_review",
+  );
+  await chooseComboboxOption(
+    page,
+    reviewForm.getByRole("combobox", { name: "Resolution", exact: true }),
+    "retain_for_research_review",
+  );
   await reviewForm.getByRole("button", { name: /Save review/ }).click();
   await page.getByText("Review record saved with an audit event.").first().waitFor({ state: "visible", timeout: 20000 });
   check(
