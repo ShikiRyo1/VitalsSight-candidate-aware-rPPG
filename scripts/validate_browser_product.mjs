@@ -286,9 +286,14 @@ try {
   );
   await reviewForm.getByRole("button", { name: /Save review/ }).click();
   await page.getByText("Review record saved with an audit event.").first().waitFor({ state: "visible", timeout: 20000 });
+  const renderedResolutionValues = await page
+    .getByRole("combobox", { name: "Resolution", exact: true })
+    .evaluateAll((elements) => elements.map((element) => element.value));
   check(
     "review resolution persists after rerender",
-    (await reviewForm.getByRole("combobox", { name: "Resolution", exact: true }).inputValue()) === "retain_for_research_review",
+    renderedResolutionValues.length > 0
+      && renderedResolutionValues.every((value) => value === "retain_for_research_review"),
+    JSON.stringify(renderedResolutionValues),
   );
   await page.getByText("Audit trail", { exact: true }).first().click();
   const reviewAuditCell = page.getByText("review.updated", { exact: true });
