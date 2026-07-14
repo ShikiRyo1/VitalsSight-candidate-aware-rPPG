@@ -237,7 +237,12 @@ def json_safe(value: Any) -> Any:
 
 
 _WINDOWS_ABSOLUTE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
-_PRIVATE_POSIX_PATH = re.compile(r"^/(?:home|Users|private|tmp)/")
+_UNC_ABSOLUTE_PATH = re.compile(r"^\\\\[^\\/]+[\\/][^\\/]+")
+_POSIX_ABSOLUTE_PATH = re.compile(r"^/")
+_WINDOWS_PATH_FRAGMENT = re.compile(
+    r"(?i)(?<![A-Za-z0-9])(?:[A-Z]:[\\/]|\\\\[^\\/\r\n]+[\\/][^\\/\r\n]+[\\/])[^\r\n]*"
+)
+_POSIX_PATH_FRAGMENT = re.compile(r"(?<![A-Za-z0-9:])/(?:[^/\s]+/)+[^\r\n]*")
 
 
 def sanitize_report_value(value: Any) -> Any:
@@ -249,10 +254,13 @@ def sanitize_report_value(value: Any) -> Any:
         return [sanitize_report_value(item) for item in value]
     if isinstance(value, str):
         stripped = value.strip()
-        if _WINDOWS_ABSOLUTE_PATH.match(stripped):
+        if _WINDOWS_ABSOLUTE_PATH.match(stripped) or _UNC_ABSOLUTE_PATH.match(stripped):
             return PureWindowsPath(stripped).name or "[local path redacted]"
-        if _PRIVATE_POSIX_PATH.match(stripped):
+        if _POSIX_ABSOLUTE_PATH.match(stripped):
             return PurePosixPath(stripped).name or "[local path redacted]"
+        redacted = _WINDOWS_PATH_FRAGMENT.sub("[local path redacted]", value)
+        redacted = _POSIX_PATH_FRAGMENT.sub("[local path redacted]", redacted)
+        return redacted
     return value
 
 
@@ -1334,7 +1342,7 @@ def preflight_from_decode_error(file_name: str, error: Exception) -> dict[str, A
         ],
         "technical_error": {
             "type": type(error).__name__,
-            "message": str(error)[:300],
+            "message": sanitize_report_value(str(error)[:300]),
         },
     }
 
@@ -1389,7 +1397,7 @@ def case_from_runtime_failure(
         "preflight": preflight,
         "technical_error": {
             "type": type(error).__name__,
-            "message": str(error)[:300],
+            "message": sanitize_report_value(str(error)[:300]),
         },
         "policy_version": POLICY_VERSION,
         "model_version": MODEL_VERSION,

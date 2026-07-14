@@ -19,9 +19,10 @@ from src.product.console_service import (
     make_demo_cases,
     preflight_from_decode_error,
     run_uploaded_video,
+    sanitize_report_value,
     video_preflight,
 )
-from src.product.build_identity import source_build_identity
+from src.product.build_identity import path_fingerprint, source_build_identity
 from src.product.console_store import ConsoleStore
 
 
@@ -45,6 +46,7 @@ def create_app(db_path: str | Path | None = None, *, seed_demo: bool = True) -> 
     resolved_db_path = Path(db_path or default_db_path())
     store = ConsoleStore(resolved_db_path)
     upload_dir = Path(os.getenv("VITALSSIGHT_UPLOAD_DIR", resolved_db_path.parent / "uploads" / "api"))
+    upload_dir.mkdir(parents=True, exist_ok=True)
     max_upload_bytes = int(os.getenv("VITALSSIGHT_MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))
     if seed_demo and not store.list_cases():
         for case in make_demo_cases():
@@ -62,18 +64,22 @@ def create_app(db_path: str | Path | None = None, *, seed_demo: bool = True) -> 
 
     @app.get("/health")
     def health() -> dict[str, Any]:
-        return {
+        return sanitize_report_value({
             "status": "ok",
             "service": "vitalssight-console",
             "report_version": REPORT_VERSION,
             "build": source_build_identity(),
+            "storage": {
+                "upload_dir_fingerprint": path_fingerprint(upload_dir),
+                "raw_video_policy": "delete_after_analysis",
+            },
             "claim_boundary": CLAIM_BOUNDARY,
-        }
+        })
 
     @app.get("/api/v1/cases")
     def list_cases() -> dict[str, Any]:
         cases = store.list_cases()
-        return {"count": len(cases), "items": cases, "claim_boundary": CLAIM_BOUNDARY}
+        return sanitize_report_value({"count": len(cases), "items": cases, "claim_boundary": CLAIM_BOUNDARY})
 
     @app.post("/api/v1/assessments/video", status_code=201)
     def assess_video(
@@ -143,8 +149,11 @@ def create_app(db_path: str | Path | None = None, *, seed_demo: bool = True) -> 
                         retention_policy=retention_policy,
                     )
             case["source_name"] = safe_name
+            case = sanitize_report_value(case)
             store.upsert_case(case, actor=actor.strip() or "api-user")
-            return {"item": case, "raw_video_retained": False, "claim_boundary": CLAIM_BOUNDARY}
+            return sanitize_report_value(
+                {"item": case, "raw_video_retained": False, "claim_boundary": CLAIM_BOUNDARY}
+            )
         finally:
             file.file.close()
             if temporary_path.exists():
@@ -155,23 +164,23 @@ def create_app(db_path: str | Path | None = None, *, seed_demo: bool = True) -> 
         case = store.get_case(case_id)
         if not case:
             raise HTTPException(status_code=404, detail="Case not found")
-        return case
+        return sanitize_report_value(case)
 
     @app.get("/api/v1/reviews")
     def list_reviews(include_closed: bool = True) -> dict[str, Any]:
         reviews = store.list_reviews(include_closed=include_closed)
-        return {"count": len(reviews), "items": reviews, "claim_boundary": CLAIM_BOUNDARY}
+        return sanitize_report_value({"count": len(reviews), "items": reviews, "claim_boundary": CLAIM_BOUNDARY})
 
     @app.put("/api/v1/reviews/{case_id}")
     def update_review(case_id: str, update: ReviewUpdate) -> dict[str, Any]:
         try:
             store.update_review(case_id, **update.model_dump())
         except KeyError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
+            raise HTTPException(status_code=404, detail=sanitize_report_value(str(error))) from error
         except ValueError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
+            raise HTTPException(status_code=422, detail=sanitize_report_value(str(error))) from error
         review = next((item for item in store.list_reviews() if item["case_id"] == case_id), None)
-        return {"item": review, "claim_boundary": CLAIM_BOUNDARY}
+        return sanitize_report_value({"item": review, "claim_boundary": CLAIM_BOUNDARY})
 
     @app.get("/api/v1/cases/{case_id}/report")
     def get_report(case_id: str, format: str = "json", language: str = "en") -> Any:
@@ -193,7 +202,7 @@ def create_app(db_path: str | Path | None = None, *, seed_demo: bool = True) -> 
             )
         if format.lower() != "json":
             raise HTTPException(status_code=422, detail="format must be json or pdf")
-        return payload
+        return sanitize_report_value(payload)
 
     return app
 

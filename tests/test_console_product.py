@@ -34,7 +34,7 @@ from src.product.console_service import (
 )
 from src.product.console_store import ConsoleStore
 from src.product.adult_hr_mvp import AdultHRMVPConfig, build_release_windows, detector_is_release_eligible
-from src.product.build_identity import source_build_identity
+from src.product.build_identity import path_fingerprint, source_build_identity
 from src.vision.face_mesh_roi import resolve_face_landmarker_model_path, validate_face_landmarker_model
 
 
@@ -287,6 +287,11 @@ def test_report_payload_redacts_legacy_absolute_paths() -> None:
         "detector_backend": "static_roi_fallback",
     }
     case["preflight"] = {"face_detector_source": "/home/research/private/face_landmarker.task"}
+    case["technical_error"] = {
+        "windows": r"OpenCV could not open video: G:\\private\\uploads\\clip.avi",
+        "unc": r"Decoder failed at \\server\share\private\clip.avi",
+        "posix": "Decoder failed at /mnt/private/session/clip.avi",
+    }
 
     payload = build_report_payload(case)
     serialized = json.dumps(payload, ensure_ascii=False)
@@ -301,7 +306,36 @@ def test_report_payload_redacts_legacy_absolute_paths() -> None:
     assert b"G:\\private" not in pdf
     assert r"G:\\private" not in csv
     assert "/home/research" not in csv
+    assert r"G:\\private" not in serialized
+    assert r"\server\share" not in serialized
+    assert "/mnt/private" not in serialized
+    assert serialized.count("[local path redacted]") >= 3
     assert payload["case"]["runtime_metadata"]["detector_model_path"] == "face_landmarker.task"
+
+
+def test_api_outbound_payloads_redact_paths_and_bind_upload_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    upload_dir = tmp_path / "browser-uploads"
+    monkeypatch.setenv("VITALSSIGHT_UPLOAD_DIR", str(upload_dir))
+    app = create_app(tmp_path / "api-redaction.db", seed_demo=False)
+    case = make_demo_cases()[1]
+    case["technical_error"] = {
+        "message": r"OpenCV could not open video: C:\\Users\\research\\private\\clip.avi"
+    }
+    app.state.store.upsert_case(case, actor="redaction-test")
+    client = TestClient(app)
+
+    health = client.get("/health").json()
+    assert health["storage"]["upload_dir_fingerprint"] == path_fingerprint(upload_dir)
+    assert upload_dir.is_dir()
+
+    list_payload = client.get("/api/v1/cases").json()
+    detail_payload = client.get(f"/api/v1/cases/{case['case_id']}").json()
+    for payload in (list_payload, detail_payload):
+        serialized = json.dumps(payload, ensure_ascii=False)
+        assert r"C:\\Users\\research" not in serialized
+        assert "[local path redacted]" in serialized
 
 
 def test_source_build_identity_exposes_commit_and_tree() -> None:

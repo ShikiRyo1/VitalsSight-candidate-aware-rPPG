@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -32,6 +33,11 @@ if (workingTreeStatus) {
 
 const finalRun = path.join(outputRoot, "playwright", "final_run");
 const downloadsDir = path.join(outputRoot, "playwright", "downloads");
+const expectedUploadRoot = path.join(outputRoot, "uploads");
+const expectedUploadFingerprint = crypto
+  .createHash("sha256")
+  .update(path.resolve(expectedUploadRoot).replaceAll("\\", "/").toLowerCase())
+  .digest("hex");
 await fs.mkdir(finalRun, { recursive: true });
 await fs.mkdir(downloadsDir, { recursive: true });
 
@@ -223,8 +229,22 @@ try {
   check("API service commit matches validation commit", health.build?.commit === actualCommit, health.build?.commit);
   check("API service tree matches validation tree", health.build?.tree === gitTree, health.build?.tree);
   check("API service reports a clean source tree", health.build?.dirty === false, health.build?.dirty);
+  check(
+    "API service uses the validation upload root",
+    health.storage?.upload_dir_fingerprint === expectedUploadFingerprint,
+    health.storage?.upload_dir_fingerprint,
+  );
   const buildLabel = `Build ${actualCommit.slice(0, 12)} · Tree ${gitTree.slice(0, 12)} · clean`;
   check("Streamlit service build identity matches validation source", (await bodyText(page)).includes(buildLabel), buildLabel);
+  const streamlitUploadFingerprint = await page
+    .locator("[data-vs-upload-root-fingerprint]")
+    .first()
+    .getAttribute("data-vs-upload-root-fingerprint");
+  check(
+    "Streamlit service uses the validation upload root",
+    streamlitUploadFingerprint === expectedUploadFingerprint,
+    streamlitUploadFingerprint,
+  );
   check("desktop viewport has no horizontal overflow", await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2));
   await saveState(page, "01_overview_desktop");
 
@@ -423,9 +443,11 @@ try {
   check("mobile viewport has no horizontal overflow", await mobilePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2));
   await saveState(mobilePage, "12_mobile_new_assessment");
 
+  const uploadRootStat = await fs.stat(expectedUploadRoot).catch(() => null);
+  check("configured raw-upload directory exists", Boolean(uploadRootStat?.isDirectory()), expectedUploadRoot);
   check(
     "tested delete-after-analysis mode leaves no raw upload file",
-    (await regularFiles(path.join(outputRoot, "uploads"))).length === 0,
+    (await regularFiles(expectedUploadRoot)).length === 0,
   );
 
   check("no browser console errors", consoleErrors.length === 0, JSON.stringify(consoleErrors));
@@ -439,6 +461,10 @@ try {
     git_tree: gitTree,
     working_tree_clean: true,
     service_build: health.build,
+    storage_contract: {
+      upload_dir_fingerprint: expectedUploadFingerprint,
+      raw_video_policy: health.storage?.raw_video_policy,
+    },
     base_url: baseUrl,
     api_url: apiUrl,
     viewports: ["1440x1000", "390x844"],

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -8,6 +9,13 @@ from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def path_fingerprint(path: str | Path) -> str:
+    """Return a non-reversible identifier for a configured local path."""
+
+    normalized = Path(path).resolve().as_posix().casefold()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _git_output(*args: str) -> str:

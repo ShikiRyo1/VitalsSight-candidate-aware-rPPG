@@ -34,10 +34,11 @@ from src.product.console_service import (
     make_demo_cases,
     preflight_from_decode_error,
     run_uploaded_video,
+    sanitize_report_value,
     video_preflight,
 )
 from src.product.console_store import ConsoleStore
-from src.product.build_identity import source_build_identity
+from src.product.build_identity import path_fingerprint, source_build_identity
 
 
 DB_PATH = Path(os.getenv("VITALSSIGHT_DB_PATH", PROJECT / "runtime" / "vitalsight_console.db"))
@@ -125,6 +126,10 @@ def run() -> None:
     st.sidebar.caption(
         f"Build {str(build['commit'])[:12]} · Tree {str(build['tree'])[:12]} · "
         f"{'dirty' if build['dirty'] else 'clean'}"
+    )
+    st.sidebar.markdown(
+        f'<span data-vs-upload-root-fingerprint="{path_fingerprint(UPLOAD_DIR)}" style="display:none"></span>',
+        unsafe_allow_html=True,
     )
 
     _header(section)
@@ -459,7 +464,7 @@ def _new_assessment(store: ConsoleStore) -> None:
                     )
                     st.caption(
                         f"{_ui('Technical detail', '技术信息')}: "
-                        f"{type(error).__name__}: {str(error)[:180]}"
+                        f"{type(error).__name__}: {sanitize_report_value(str(error)[:180])}"
                     )
         if reset_col.button(_ui("Clear", "清除"), icon=":material/ink_eraser:", width="stretch"):
             _remove_session_upload()
@@ -1018,11 +1023,11 @@ def _integrations(store: ConsoleStore) -> None:
     with left:
         st.subheader(_ui("Validated case payload", "已校验案例载荷"))
         try:
-            payload = ensure_output_contract(selected)
+            payload = sanitize_report_value(ensure_output_contract(selected))
             st.success(_ui("The release/review contract is valid.", "放行/复核契约校验通过。"))
             st.json(payload, expanded=False)
         except ValueError as error:
-            st.error(str(error))
+            st.error(sanitize_report_value(str(error)))
         if st.button(_ui("Write integration audit event", "写入集成审计事件"), icon=":material/history:", width="stretch"):
             store.log_event(selected["case_id"], "integration.payload_validated", actor=st.session_state["vs_operator"], details={"schema_version": selected.get("schema_version")})
             message = _ui("Audit event recorded for this payload.", "已为该载荷写入审计事件。")
