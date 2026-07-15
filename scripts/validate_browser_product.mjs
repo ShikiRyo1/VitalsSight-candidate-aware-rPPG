@@ -90,10 +90,20 @@ async function regularFiles(root) {
   return files;
 }
 
+async function waitForStreamlitIdle(page, timeout = 120000) {
+  await page.waitForFunction(
+    () => !Array.from(document.querySelectorAll("button")).some(
+      (button) => button.offsetParent !== null && button.innerText.trim() === "Stop",
+    ),
+    undefined,
+    { timeout },
+  );
+  await page.waitForTimeout(300);
+}
+
 async function waitForHeading(page, name, timeout = 30000) {
   await page.getByRole("heading", { name, exact: true }).first().waitFor({ state: "visible", timeout });
-  await page.getByRole("button", { name: "Stop", exact: true }).waitFor({ state: "hidden", timeout: 120000 });
-  await page.waitForTimeout(300);
+  await waitForStreamlitIdle(page);
 }
 
 async function gotoWorkspace(page, name) {
@@ -115,7 +125,7 @@ async function gotoWorkspace(page, name) {
 async function openEnglish(page) {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.getByRole("heading", { name: /总览|Overview/ }).first().waitFor({ state: "visible", timeout: 60000 });
-  await page.getByRole("button", { name: "Stop", exact: true }).waitFor({ state: "hidden", timeout: 120000 });
+  await waitForStreamlitIdle(page);
   const englishShell = page.getByText("Evidence operations console", { exact: true }).first();
   if (await englishShell.isVisible().catch(() => false)) {
     check("English language control is active", true);
@@ -139,18 +149,43 @@ async function openEnglish(page) {
   await waitForHeading(page, "Overview");
 }
 
-async function prepareUpload(page, fixture) {
-  await gotoWorkspace(page, "New assessment");
+async function toggleLanguageRoundTrip(page) {
+  const zh = page.getByRole("radio", { name: "ZH", exact: true });
+  await zh.click({ force: true });
+  await page.getByText("证据运营控制台", { exact: true }).first().waitFor({ state: "visible", timeout: 30000 });
+  check("Chinese language control renders a complete shell", await zh.isChecked());
+  const en = page.getByRole("radio", { name: "EN", exact: true });
+  await en.click({ force: true });
+  await page.getByText("Evidence operations console", { exact: true }).first().waitFor({ state: "visible", timeout: 30000 });
+  await waitForHeading(page, "Overview");
+  check("language round trip restores English shell", await en.isChecked());
+}
+
+async function ensureConsent(page) {
   const consent = page.getByRole("checkbox", {
     name: "I confirm the recording may be processed for the selected research purpose.",
   });
   if (!(await consent.isChecked())) {
     await consent.click({ force: true });
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(500);
   }
-  check("consent control accepts confirmation", await page.getByRole("checkbox", {
-    name: "I confirm the recording may be processed for the selected research purpose.",
-  }).isChecked());
+  check("consent control accepts confirmation", await consent.isChecked());
+}
+
+async function prepareUpload(page, fixture, { sessionOnly = false } = {}) {
+  await gotoWorkspace(page, "New assessment");
+  await ensureConsent(page);
+  if (sessionOnly) {
+    await page.getByRole("radio", {
+      name: "Keep locally until cleared or automatically expired",
+      exact: true,
+    }).click({ force: true });
+  } else {
+    await page.getByRole("radio", {
+      name: "Delete after analysis; retain derived evidence",
+      exact: true,
+    }).click({ force: true });
+  }
   await page.getByRole("radio", { name: "Upload video", exact: true }).click({ force: true });
   await page.locator('input[type="file"]').first().waitFor({ state: "attached", timeout: 15000 });
   const input = page.locator('input[type="file"]').first();
@@ -158,8 +193,8 @@ async function prepareUpload(page, fixture) {
   await page.getByRole("button", { name: /Remove / }).waitFor({ state: "visible", timeout: 30000 });
 }
 
-async function runAssessment(page, fixture, expected) {
-  await prepareUpload(page, fixture);
+async function runAssessment(page, fixture, expected, options = {}) {
+  await prepareUpload(page, fixture, options);
   await page.getByRole("button", { name: /Run assessment/ }).click();
   await page.getByText(new RegExp(`Assessment completed: ${expected}`, "i")).first().waitFor({
     state: "visible",
@@ -186,6 +221,43 @@ async function runAssessment(page, fixture, expected) {
     check(`${expected} withholds HR`, /Published HR\s+Withheld/.test(text), text.slice(-1400));
   }
   return text;
+}
+
+async function runDemoAssessment(page, sourceName, expected) {
+  await gotoWorkspace(page, "New assessment");
+  await ensureConsent(page);
+  await page.getByRole("radio", { name: sourceName, exact: true }).click({ force: true });
+  await page.getByRole("button", { name: /Run assessment/ }).click();
+  await page.getByText(new RegExp(`Assessment completed: ${expected}`, "i")).first().waitFor({
+    state: "visible",
+    timeout: 30000,
+  });
+  await page.waitForFunction(
+    (expectedDecision) => {
+      const text = document.body.innerText;
+      const outputReady = !text.includes("No result has been generated in this session.");
+      const expectedOutput = expectedDecision === "Released"
+        ? /Published HR\s+\d+(?:\.\d+)? BPM/.test(text)
+        : /Published HR\s+Withheld/.test(text);
+      return outputReady && expectedOutput;
+    },
+    expected,
+    { timeout: 30000 },
+  );
+  await page.waitForTimeout(300);
+  const text = await bodyText(page);
+  check(
+    `${sourceName} returns ${expected}`,
+    new RegExp(`Decision\\s+${expected}`, "i").test(text),
+    text.slice(-1200),
+  );
+  if (expected === "Released") {
+    check(`${sourceName} publishes finite HR`, /Published HR\s+\d+(?:\.\d+)? BPM/.test(text));
+  } else {
+    check(`${sourceName} withholds HR`, /Published HR\s+Withheld/.test(text));
+  }
+  await page.getByRole("button", { name: /Clear/ }).click();
+  await page.getByText("Assessment input and session result were cleared.").first().waitFor({ state: "visible", timeout: 15000 });
 }
 
 async function downloadByButton(page, buttonName, expectedExtension) {
@@ -223,6 +295,8 @@ let mobileContext;
 
 try {
   await openEnglish(page);
+  await toggleLanguageRoundTrip(page);
+  let text;
   const healthResponse = await context.request.get(`${apiUrl}/health`);
   check("API health endpoint responds", healthResponse.ok(), healthResponse.status());
   const health = await healthResponse.json();
@@ -248,6 +322,34 @@ try {
   check("desktop viewport has no horizontal overflow", await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2));
   await saveState(page, "01_overview_desktop");
 
+  await page.getByRole("button", { name: /Quick guide/ }).click();
+  const quickGuideText = await bodyText(page);
+  check(
+    "quick guide exposes prepare assess act and export steps",
+    ["Prepare", "Assess", "Act", "Export"].every((item) => quickGuideText.includes(item)),
+  );
+  await page.getByRole("button", { name: /Open full guide/ }).click();
+  await waitForHeading(page, "Help & settings");
+  check("header quick guide opens the full workflow", true);
+  await gotoWorkspace(page, "Overview");
+
+  await page.getByRole("button", { name: /Start guided assessment/ }).click();
+  await waitForHeading(page, "New assessment");
+  check("overview start action opens a clean assessment", true);
+  await gotoWorkspace(page, "Overview");
+  await page.getByRole("button", { name: /Continue review work/ }).click();
+  await waitForHeading(page, "Review queue");
+  check("overview review action opens the review queue", true);
+  await gotoWorkspace(page, "Overview");
+  await page.getByRole("button", { name: /Learn the full workflow/ }).click();
+  await waitForHeading(page, "Help & settings");
+  check("overview learning action opens role guidance", true);
+  await gotoWorkspace(page, "Overview");
+  await page.getByRole("button", { name: /Open guided workflow/ }).click();
+  await waitForHeading(page, "Help & settings");
+  check("sidebar guided workflow action is functional", true);
+  await gotoWorkspace(page, "Overview");
+
   const collapse = page.getByRole("button", { name: /keyboard_double_arrow_left/ });
   await collapse.click();
   await page.getByRole("button", { name: /keyboard_double_arrow_right/ }).waitFor({ state: "visible", timeout: 10000 });
@@ -257,6 +359,15 @@ try {
   await saveState(page, "02_sidebar_restored");
 
   await gotoWorkspace(page, "New assessment");
+  text = await bodyText(page);
+  check(
+    "assessment controls fully localize after language switching",
+    ["Intended research use", "Raw-video handling", "Choose a source"].every((item) => text.includes(item))
+      && !["研究用途", "原始视频处理", "选择来源", "流程验证"].some((item) => text.includes(item)),
+    text.slice(0, 1800),
+  );
+  check("assessment exposes privacy and output contracts", text.includes("PRIVACY CONTRACT") && text.includes("OUTPUT CONTRACT"));
+  check("assessment progress identifies current and next stages", text.includes("Current") && text.includes("Next"));
   await page.getByRole("button", { name: /Run assessment/ }).click();
   await page.getByTestId("stAlertContentWarning").getByText(
     "Confirm processing consent before running the assessment.",
@@ -265,9 +376,26 @@ try {
   check("unconsented assessment returns an explicit warning", true);
   check("unconsented assessment produces no output", (await bodyText(page)).includes("No result has been generated in this session."));
 
-  let text = await runAssessment(page, "8555_IriunWebcam_before.avi", "Release");
+  await runDemoAssessment(page, "Stable demo", "Released");
+  await runDemoAssessment(page, "Conflict demo", "Review");
+  await runDemoAssessment(page, "Low-light demo", "Retake");
+
+  text = await runAssessment(page, "8555_IriunWebcam_before.avi", "Release");
   check("release evidence action present", text.includes("Retain the evidence packet"));
   await saveState(page, "03_real_video_release");
+  await page.getByRole("button", { name: /Open case/ }).click();
+  await waitForHeading(page, "Cases");
+  check("assessment open-case action exposes the selected evidence packet", (await bodyText(page)).includes("8555_IriunWebcam_before.avi"));
+  await page.getByRole("button", { name: /Open report/ }).first().click();
+  await waitForHeading(page, "Reports");
+  await page.getByText("75.1 BPM", { exact: true }).first().waitFor({ state: "visible", timeout: 30000 });
+  check("case-detail report action opens the matching report", true);
+  await gotoWorkspace(page, "New assessment");
+  const uploadSourceAfterNavigation = page.getByRole("radio", { name: "Upload video", exact: true });
+  if (!(await uploadSourceAfterNavigation.isChecked())) {
+    await uploadSourceAfterNavigation.click({ force: true });
+    await page.locator('input[type="file"]').first().waitFor({ state: "attached", timeout: 15000 });
+  }
   await page.getByRole("button", { name: /Clear/ }).click();
   await page.getByText("Assessment input and session result were cleared.").first().waitFor({ state: "visible", timeout: 15000 });
   const clearedUploader = page.locator('input[type="file"]').first();
@@ -322,10 +450,11 @@ try {
   check("review audit event is rendered in the audit grid", await reviewAuditCell.count() > 0);
   await saveState(page, "06_review_saved_with_audit");
 
-  text = await runAssessment(page, "8555_retake_first5s.avi", "Retake");
+  text = await runAssessment(page, "8555_retake_first5s.avi", "Retake", { sessionOnly: true });
   check("retake recommends duration correction", text.includes("Record at least 8 seconds; 20-30 seconds is preferred."));
   check("retake does not invent illumination correction", !text.includes("Use one even, front-facing light source and avoid backlight"), text.slice(-1800));
   check("retake does not invent candidate-count correction", !text.includes("Confirm at least three candidates are retained"), text.slice(-1800));
+  check("session-only mode retains one local raw upload until the flow is cleared", (await regularFiles(expectedUploadRoot)).length === 1);
   await saveState(page, "07_real_video_retake_corrected_guidance");
 
   await page.getByRole("button", { name: /Build report/ }).click();
@@ -364,11 +493,45 @@ try {
   check("downloaded Markdown excludes false illumination failure", !reportMarkdown.includes("Illumination score: 41%"));
   check("downloaded CSV has case row", (await fs.readFile(csvPath, "utf8")).split(/\r?\n/).length >= 2);
 
+  await page.getByRole("button", { name: /Open review workflow/ }).click();
+  await waitForHeading(page, "Review queue");
+  check("report review action opens the review workflow", true);
+  await gotoWorkspace(page, "Reports");
+  await page.getByRole("button", { name: /Start a corrected recording/ }).click();
+  await waitForHeading(page, "New assessment");
+  check(
+    "corrected-recording action resets consent and returns to the stable source",
+    !(await page.getByRole("checkbox", { name: "I confirm the recording may be processed for the selected research purpose." }).isChecked())
+      && await page.getByRole("radio", { name: "Stable demo", exact: true }).isChecked(),
+  );
+  check("corrected-recording action clears the session-only raw upload", (await regularFiles(expectedUploadRoot)).length === 0);
+
   const workspaces = ["Overview", "New assessment", "Cases", "Review queue", "Reports", "Evidence", "Integrations", "Help & settings"];
   for (const workspace of workspaces) {
     await gotoWorkspace(page, workspace);
     check(`workspace opens: ${workspace}`, true);
   }
+
+  await gotoWorkspace(page, "Cases");
+  const caseSearch = page.getByRole("textbox", { name: "Search", exact: true });
+  await caseSearch.fill("case-that-does-not-exist");
+  await caseSearch.press("Enter");
+  await page.getByText("No case matches the filters.", { exact: true }).waitFor({ state: "visible", timeout: 15000 });
+  check("case registry search exposes an explicit empty state", true);
+  await caseSearch.fill("");
+  await caseSearch.press("Enter");
+  await page.getByText("No case matches the filters.", { exact: true }).waitFor({ state: "hidden", timeout: 15000 });
+  check("case registry search can be cleared", true);
+
+  await gotoWorkspace(page, "Evidence");
+  text = await bodyText(page);
+  check(
+    "evidence workspace renders protocol metrics and locked invariants",
+    text.includes("Protocol-bound headline metrics") && text.includes("Protocol invariants"),
+  );
+  check("evidence workspace renders its performance chart", await page.locator(".js-plotly-plot").count() > 0);
+
+  await gotoWorkspace(page, "Help & settings");
   await saveState(page, "09_help_and_settings");
   text = await bodyText(page);
   check("role-based guide names required input action output and next destination", text.includes("Each step states the required input"));
@@ -385,7 +548,27 @@ try {
   await page.getByText("Operator saved for future audit events.").first().waitFor({ state: "visible", timeout: 15000 });
   check("operator setting saved", true);
 
-  await gotoWorkspace(page, "Integrations");
+  await page.getByText("What should I do if a click appears to do nothing?", { exact: true }).click();
+  await page.getByText("Every command now either navigates, downloads a file, or shows a success/warning message.", { exact: false }).waitFor({ state: "visible", timeout: 10000 });
+  check("interaction troubleshooting guidance expands", true);
+
+  await page.getByRole("tab", { name: "Evidence reviewer", exact: true }).click();
+  await page.getByRole("button", { name: /Open review queue/ }).click();
+  await waitForHeading(page, "Review queue");
+  check("reviewer guide opens the review queue", true);
+
+  await gotoWorkspace(page, "Help & settings");
+  await page.getByRole("tab", { name: "Report & integration", exact: true }).click();
+  await page.getByRole("button", { name: /Open reports/ }).click();
+  await waitForHeading(page, "Reports");
+  check("report guide opens the report center", true);
+
+  await gotoWorkspace(page, "Help & settings");
+  await page.getByRole("tab", { name: "Report & integration", exact: true }).click();
+  await page.getByRole("button", { name: /Open integrations/ }).click();
+  await waitForHeading(page, "Integrations");
+  check("integration guide opens the integration workspace", true);
+
   await page.getByRole("button", { name: /Write integration audit event/ }).click();
   await page.getByText("Audit event recorded for this payload.").first().waitFor({ state: "visible", timeout: 15000 });
   check("integration audit action gives visible feedback", true);
@@ -444,6 +627,9 @@ try {
   await mobileAssessmentExpand.waitFor({ state: "visible", timeout: 10000 });
   check("mobile navigation auto-closes sidebar", true);
   check("mobile viewport has no horizontal overflow", await mobilePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2));
+  const mobileText = await bodyText(mobilePage);
+  check("mobile assessment preserves privacy and output contracts", mobileText.includes("PRIVACY CONTRACT") && mobileText.includes("OUTPUT CONTRACT"));
+  check("mobile assessment exposes all four workflow stages", ["Consent", "Capture", "Quality", "Result or review"].every((item) => mobileText.includes(item)));
   await saveState(mobilePage, "12_mobile_new_assessment");
 
   const uploadRootStat = await fs.stat(expectedUploadRoot).catch(() => null);
@@ -458,7 +644,7 @@ try {
   check("no unexpected HTTP response errors", responseErrors.length === 0, JSON.stringify(responseErrors));
 
   const manifest = {
-    validation_version: "vitalssight.browser-product-validation.v3",
+    validation_version: "vitalssight.browser-product-validation.v4",
     passed: checks.every((item) => item.passed),
     git_commit: actualCommit,
     git_tree: gitTree,
@@ -497,6 +683,7 @@ try {
       "- Real-video states: release, review, retake",
       "- Reports: PDF, JSON, Markdown, CSV",
       "- Workspaces: 8/8",
+      "- Product commands: overview, assessment, case, review, report, evidence, integration, help, export and reset paths exercised",
       "- Viewports: 1440x1000 and 390x844",
       `- Console errors: ${consoleErrors.length}`,
       `- Page errors: ${pageErrors.length}`,
@@ -509,7 +696,7 @@ try {
   console.log(JSON.stringify({ passed: manifest.passed, checks: checks.length, outputRoot }));
 } catch (error) {
   const failure = {
-    validation_version: "vitalssight.browser-product-validation.v3",
+    validation_version: "vitalssight.browser-product-validation.v4",
     passed: false,
     git_commit: commit,
     error: String(error?.stack || error),

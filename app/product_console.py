@@ -89,12 +89,17 @@ def run() -> None:
     language = st.sidebar.segmented_control(
         "Language / 语言",
         options=["ZH", "EN"],
-        default=st.session_state["vs_language"],
         key="vs_language_control",
+        on_change=_sync_language,
     )
     st.session_state["vs_language"] = language or "ZH"
     st.sidebar.markdown("<div class='vs-brand'><span>VS</span><b>VitalsSight</b></div>", unsafe_allow_html=True)
     st.sidebar.caption(_ui("Evidence operations console", "证据运营控制台"))
+    st.sidebar.markdown(
+        f"<div class='vs-side-status'><i></i><div><b>{_escape(_ui('Workspace ready', '工作区就绪'))}</b>"
+        f"<span>{_escape(_ui('Evidence store connected', '证据存储已连接'))}</span></div></div>",
+        unsafe_allow_html=True,
+    )
     section = st.sidebar.radio(
         _ui("Workspace", "工作区"),
         SECTIONS,
@@ -165,9 +170,14 @@ def run() -> None:
 def _init_state() -> None:
     defaults = {
         "vs_language": "ZH",
+        "vs_language_control": "ZH",
         "vs_section": "Overview",
         "vs_section_radio": "Overview",
         "vs_operator": "Research operator",
+        "vs_purpose": "workflow_validation",
+        "vs_consent": False,
+        "vs_retention": "delete_after_analysis",
+        "vs_source": "stable",
         "vs_focus_case": "",
         "vs_preflight": None,
         "vs_upload_path": "",
@@ -203,6 +213,18 @@ def _is_zh() -> bool:
     return st.session_state.get("vs_language", "ZH") == "ZH"
 
 
+def _sync_language() -> None:
+    language = st.session_state.get("vs_language_control", "ZH") or "ZH"
+    st.session_state["vs_language"] = language
+    suffix = language.lower()
+    for field in ("vs_purpose", "vs_consent", "vs_retention", "vs_source"):
+        st.session_state[f"{field}_control_{suffix}"] = st.session_state.get(field)
+
+
+def _sync_assessment_control(field: str, widget_key: str) -> None:
+    st.session_state[field] = st.session_state.get(widget_key)
+
+
 def _ui(en: str, zh: str) -> str:
     return zh if _is_zh() else en
 
@@ -235,13 +257,14 @@ def _header(section: str) -> None:
         "Integrations": _ui("Validated payloads, OpenAPI schema, and report endpoints", "校验载荷、OpenAPI 规范和报告接口"),
         "Help & settings": _ui("Acquisition guidance, status definitions, privacy, and workspace settings", "采集指引、状态定义、隐私与工作区设置"),
     }[section]
-    left, right = st.columns([1, 0.38])
+    left, right = st.columns([1, 0.42])
     with left:
         st.markdown(f"<h1 class='vs-page-title'>{_escape(title)}</h1>", unsafe_allow_html=True)
         st.caption(subtitle)
     with right:
         st.markdown(
-            "<div class='vs-env'><b>RESEARCH</b><span>candidate-aware HR</span></div>",
+            f"<div class='vs-env'><div><b>RESEARCH</b><span>candidate-aware HR</span></div>"
+            f"<div><b>{_escape(_ui('LOCAL', '本地'))}</b><span>{_escape(_ui('evidence linked', '证据已关联'))}</span></div></div>",
             unsafe_allow_html=True,
         )
         with st.popover(
@@ -328,9 +351,10 @@ def _overview(store: ConsoleStore) -> None:
             st.success(_ui("No open reviews.", "当前没有待复核项目。"))
         for review in reviews[:5]:
             case = review["case"]
+            decision = str(case.get("decision", "review"))
             st.markdown(
                 f"<div class='vs-list-row'><div><b>{_escape(case.get('display_id'))}</b>"
-                f"<span>{_escape(_decision_text(case.get('decision')))} · {_escape(_data_text(review.get('priority')))}</span></div>"
+                f"<span class='vs-state-pill {decision}'>{_escape(_decision_text(decision))} · {_escape(_data_text(review.get('priority')))}</span></div>"
                 f"<small>{_escape(_data_text(case.get('review_reason') or case.get('recommended_action')))}</small></div>",
                 unsafe_allow_html=True,
             )
@@ -358,8 +382,27 @@ def _new_assessment(store: ConsoleStore) -> None:
         f"<b>{_escape(_ui('Quality result, release/review/retake state, evidence and next action', '质量结果、放行/复核/重采状态、证据与下一步操作'))}</b></div></div>",
         unsafe_allow_html=True,
     )
+    st.markdown(
+        f"<div class='vs-processing-contract'><div><b>{_escape(_ui('PRIVACY CONTRACT', '隐私契约'))}</b>"
+        f"<span>{_escape(_ui('Raw video stays local and is deleted after analysis in the recommended mode.', '推荐模式下，原始视频仅在本地处理并于分析后删除。'))}</span></div>"
+        f"<div><b>{_escape(_ui('OUTPUT CONTRACT', '输出契约'))}</b>"
+        f"<span>{_escape(_ui('Review and retake states never publish HR.', '复核与重采状态绝不发布心率。'))}</span></div></div>",
+        unsafe_allow_html=True,
+    )
     left, right = st.columns([1.1, 0.9], gap="large")
     with left:
+        language_suffix = "zh" if _is_zh() else "en"
+        purpose_key = f"vs_purpose_control_{language_suffix}"
+        consent_key = f"vs_consent_control_{language_suffix}"
+        retention_key = f"vs_retention_control_{language_suffix}"
+        source_key = f"vs_source_control_{language_suffix}"
+        for field, widget_key in (
+            ("vs_purpose", purpose_key),
+            ("vs_consent", consent_key),
+            ("vs_retention", retention_key),
+            ("vs_source", source_key),
+        ):
+            st.session_state.setdefault(widget_key, st.session_state.get(field))
         st.subheader(_ui("1. Purpose, consent, and retention", "1. 用途、授权与留存"))
         purpose = st.selectbox(
             _ui("Intended research use", "研究用途"),
@@ -369,12 +412,18 @@ def _new_assessment(store: ConsoleStore) -> None:
                 "algorithm_evaluation": _ui("Algorithm evaluation", "算法评估"),
                 "research_demo": _ui("Research demonstration", "研究演示"),
             }[value],
+            key=purpose_key,
+            on_change=_sync_assessment_control,
+            args=("vs_purpose", purpose_key),
         )
         consent = st.checkbox(
             _ui(
                 "I confirm the recording may be processed for the selected research purpose.",
                 "我确认该视频可按照所选研究用途进行处理。",
-            )
+            ),
+            key=consent_key,
+            on_change=_sync_assessment_control,
+            args=("vs_consent", consent_key),
         )
         retention = st.radio(
             _ui("Raw-video handling", "原始视频处理"),
@@ -383,6 +432,9 @@ def _new_assessment(store: ConsoleStore) -> None:
                 "delete_after_analysis": _ui("Delete after analysis; retain derived evidence", "分析后删除，仅保留派生证据"),
                 "session_only": _ui("Keep locally until cleared or automatically expired", "本地保留至清除或自动过期"),
             }[value],
+            key=retention_key,
+            on_change=_sync_assessment_control,
+            args=("vs_retention", retention_key),
         )
 
         st.subheader(_ui("2. Input source", "2. 输入来源"))
@@ -396,6 +448,9 @@ def _new_assessment(store: ConsoleStore) -> None:
                 "low_light": _ui("Low-light demo", "低照样例"),
                 "upload": _ui("Upload video", "上传视频"),
             }[value],
+            key=source_key,
+            on_change=_sync_assessment_control,
+            args=("vs_source", source_key),
         )
 
         uploaded = None
@@ -1251,7 +1306,26 @@ def _step_strip() -> None:
         _ui("Quality", "质量"),
         _ui("Result or review", "结果或复核"),
     ]
-    html = "".join(f"<div><b>{index}</b><span>{_escape(label)}</span></div>" for index, label in enumerate(labels, 1))
+    if st.session_state.get("vs_assessment_result"):
+        current = 4
+    elif st.session_state.get("vs_preflight"):
+        current = 3
+    elif st.session_state.get("vs_consent"):
+        current = 2
+    else:
+        current = 1
+    state_labels = {
+        "done": _ui("Complete", "已完成"),
+        "current": _ui("Current", "当前"),
+        "pending": _ui("Next", "待进行"),
+    }
+    blocks = []
+    for index, label in enumerate(labels, 1):
+        state = "done" if index < current else ("current" if index == current else "pending")
+        blocks.append(
+            f"<div class='{state}'><b>{index}</b><span>{_escape(label)}<small>{_escape(state_labels[state])}</small></span></div>"
+        )
+    html = "".join(blocks)
     st.markdown(f"<div class='vs-step-strip'>{html}</div>", unsafe_allow_html=True)
 
 
@@ -1346,7 +1420,7 @@ def _decision_text(decision: str) -> str:
 
 
 def _decision_color(decision: str) -> str:
-    return {"release": "#5F8F8C", "review": "#7B84A6", "retake": "#B77D82"}.get(decision, "#7D8E98")
+    return {"release": "#5E8F88", "review": "#B18B58", "retake": "#B8736D"}.get(decision, "#738894")
 
 
 def _next_step_text(case: dict[str, Any]) -> str:
@@ -1430,6 +1504,13 @@ def _start_assessment() -> None:
     _reset_upload_widget()
     for key in ("vs_assessment_result", "vs_preflight", "vs_upload_path"):
         st.session_state.pop(key, None)
+    st.session_state["vs_consent"] = False
+    st.session_state["vs_source"] = "stable"
+    st.session_state["vs_retention"] = "delete_after_analysis"
+    for suffix in ("zh", "en"):
+        st.session_state[f"vs_consent_control_{suffix}"] = False
+        st.session_state[f"vs_source_control_{suffix}"] = "stable"
+        st.session_state[f"vs_retention_control_{suffix}"] = "delete_after_analysis"
     _go("New assessment")
 
 
@@ -1468,30 +1549,31 @@ def _inject_css() -> None:
         """
         <style>
         :root {
-            --ink: #1b2f3a;
-            --ink-soft: #39505c;
-            --muted: #687b86;
-            --line: #d9e3e8;
-            --line-strong: #bdcdd5;
+            --ink: #1e3440;
+            --ink-soft: #415762;
+            --muted: #6b7d86;
+            --line: #d8e2e6;
+            --line-strong: #b9cad1;
             --paper: #ffffff;
-            --canvas: #f3f7f9;
-            --sidebar: #f8fafb;
-            --primary: #47788d;
-            --primary-dark: #365f72;
-            --primary-soft: #e7f0f4;
-            --steel: #6f8fa6;
-            --steel-soft: #edf2f6;
-            --teal: #5f8f8c;
-            --teal-soft: #eaf4f3;
-            --violet: #7b84a6;
-            --violet-soft: #f0f1f7;
-            --rose: #b77d82;
-            --rose-soft: #f7eeee;
-            --shadow: 0 8px 28px rgba(34, 63, 76, 0.06);
+            --canvas: #f4f7f8;
+            --sidebar: #f9fbfc;
+            --primary: #4b7893;
+            --primary-dark: #315f77;
+            --primary-soft: #eaf1f5;
+            --steel: #728c9c;
+            --steel-soft: #eef3f5;
+            --teal: #5e8f88;
+            --teal-soft: #edf5f3;
+            --review: #b18b58;
+            --review-soft: #f7f2e9;
+            --rose: #b8736d;
+            --rose-soft: #f8efed;
+            --shadow: 0 10px 30px rgba(32, 58, 70, 0.07);
+            --shadow-soft: 0 4px 14px rgba(32, 58, 70, 0.045);
         }
         html, body, [class*="css"] { font-family: "Inter", "Segoe UI", "Microsoft YaHei", sans-serif; }
-        .stApp { background: var(--canvas); color: var(--ink); }
-        header[data-testid="stHeader"] { background: rgba(243, 247, 249, 0.94); border-bottom: 1px solid rgba(217, 227, 232, 0.72); }
+        .stApp { background: var(--canvas); color: var(--ink); font-size: 0.96rem; }
+        header[data-testid="stHeader"] { background: rgba(244, 247, 248, 0.96); border-bottom: 1px solid rgba(216, 226, 230, 0.86); backdrop-filter: blur(10px); }
         [data-testid="stToolbar"] { display: flex !important; }
         [data-testid="stAppDeployButton"], [data-testid="stMainMenu"] { display: none !important; }
         [data-testid="stSidebarCollapseButton"], [data-testid="stSidebarCollapseButton"] button,
@@ -1509,7 +1591,7 @@ def _inject_css() -> None:
             border-radius: 7px !important; box-shadow: 0 3px 12px rgba(36, 66, 79, 0.10) !important;
             color: var(--primary-dark) !important; min-width: 36px !important; min-height: 36px !important;
         }
-        .block-container { padding-top: 4rem; padding-bottom: 4rem; max-width: 1460px; }
+        .block-container { padding-top: 3.65rem; padding-bottom: 4rem; max-width: 1480px; }
         section[data-testid="stSidebar"] { background: var(--sidebar); border-right: 1px solid var(--line); }
         section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] { padding-top: 0.2rem; }
         section[data-testid="stSidebar"] .stRadio > div { gap: 0.18rem; }
@@ -1522,10 +1604,19 @@ def _inject_css() -> None:
             background: var(--primary-soft); color: var(--primary-dark); border-left-color: var(--primary); font-weight: 700;
         }
         .vs-brand { display: flex; align-items: center; gap: 0.72rem; margin: 0.9rem 0 0.08rem; font-size: 1.08rem; color: var(--ink); }
-        .vs-brand span { width: 34px; height: 34px; display: inline-grid; place-items: center; background: var(--primary); color: white; border-radius: 7px; font-weight: 800; box-shadow: 0 5px 14px rgba(71,120,141,0.20); }
+        .vs-brand span { width: 36px; height: 36px; display: inline-grid; place-items: center; background: var(--primary); color: white; border-radius: 6px; font-weight: 800; box-shadow: 0 6px 16px rgba(71,120,141,0.20); }
+        .vs-side-status { display:flex; align-items:center; gap:0.62rem; margin:0.72rem 0 0.7rem; padding:0.58rem 0.68rem; border:1px solid var(--line); background:#fff; border-radius:6px; box-shadow:var(--shadow-soft); }
+        .vs-side-status i { width:8px; height:8px; border-radius:50%; background:var(--teal); box-shadow:0 0 0 4px var(--teal-soft); flex:0 0 auto; }
+        .vs-side-status b, .vs-side-status span { display:block; }
+        .vs-side-status b { color:var(--ink); font-size:0.76rem; }
+        .vs-side-status span { color:var(--muted); font-size:0.68rem; margin-top:0.06rem; }
         .vs-boundary-small { font-size: 0.76rem; line-height: 1.5; color: var(--muted); padding: 0.55rem 0; }
-        .vs-page-title { font-size: 1.85rem !important; line-height: 1.15; margin: 0 !important; color: var(--ink); letter-spacing: 0; }
-        .vs-env { margin-top: 0.2rem; border: 1px solid var(--line); background: var(--paper); padding: 0.54rem 0.72rem; border-radius: 7px; display: flex; justify-content: space-between; gap: 1rem; color: var(--muted); font-size: 0.76rem; box-shadow: 0 3px 12px rgba(34,63,76,0.04); }
+        .vs-page-title { font-size: 1.78rem !important; line-height: 1.15; margin: 0 !important; color: var(--ink); letter-spacing: 0; }
+        .vs-env { margin-top: 0.2rem; border: 1px solid var(--line); background: var(--paper); padding: 0.52rem 0.7rem; border-radius: 6px; display: grid; grid-template-columns:1fr 1fr; gap: 0; color: var(--muted); font-size: 0.72rem; box-shadow: var(--shadow-soft); }
+        .vs-env > div { display:flex; flex-direction:column; align-items:flex-start; gap:0.04rem; min-width:0; padding:0 0.6rem; border-right:1px solid var(--line); }
+        .vs-env span { white-space:nowrap; }
+        .vs-env > div:first-child { padding-left:0; }
+        .vs-env > div:last-child { border-right:0; padding-right:0; }
         .vs-env b { color: var(--primary); letter-spacing: 0; }
         .vs-rule { border-top: 1px solid var(--line); margin: 0.8rem 0 1.15rem; }
         .vs-section-rule { border-top: 1px solid var(--line); margin: 1.5rem 0; }
@@ -1533,7 +1624,7 @@ def _inject_css() -> None:
         h2 { font-size: 1.18rem !important; }
         h3 { font-size: 1rem !important; }
         p, li { color: var(--ink-soft); }
-        .vs-workflow-band { display:grid; grid-template-columns:minmax(260px,0.85fr) minmax(420px,1.15fr); gap:1.5rem; align-items:center; background:#ffffff; border:1px solid var(--line); border-left:5px solid var(--primary); border-radius:8px; padding:1rem 1.15rem; margin:0.1rem 0 0.75rem; box-shadow:var(--shadow); }
+        .vs-workflow-band { display:grid; grid-template-columns:minmax(260px,0.85fr) minmax(420px,1.15fr); gap:1.5rem; align-items:center; background:#ffffff; border:1px solid var(--line); border-left:5px solid var(--primary); border-radius:6px; padding:1rem 1.15rem; margin:0.1rem 0 0.75rem; box-shadow:var(--shadow); }
         .vs-workflow-band span, .vs-io-strip span, .vs-guide-intro > span, .vs-report-narrative > span, .vs-report-recommendation > span, .vs-action-head > span { display:block; color:var(--primary); font-size:0.67rem; font-weight:800; letter-spacing:0; }
         .vs-workflow-band b { display:block; margin-top:0.28rem; font-size:0.94rem; line-height:1.45; color:var(--ink); }
         .vs-workflow-band ol { margin:0; padding:0; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); list-style:none; counter-reset:flow; }
@@ -1542,9 +1633,14 @@ def _inject_css() -> None:
         .vs-io-strip { display:grid; grid-template-columns:1fr 1fr; gap:1px; border:1px solid var(--line); background:var(--line); border-radius:7px; overflow:hidden; margin-bottom:1rem; }
         .vs-io-strip > div { background:var(--paper); padding:0.72rem 0.86rem; }
         .vs-io-strip b { display:block; margin-top:0.18rem; font-size:0.82rem; color:var(--ink-soft); }
-        .vs-metric { background: var(--paper); border: 1px solid var(--line); border-top: 3px solid var(--steel); border-radius: 7px; padding: 0.85rem 0.95rem; min-height: 114px; box-shadow: 0 4px 16px rgba(34,63,76,0.04); }
+        .vs-processing-contract { display:grid; grid-template-columns:1fr 1fr; gap:1px; margin:-0.35rem 0 1.05rem; border:1px solid var(--line); border-radius:6px; overflow:hidden; background:var(--line); }
+        .vs-processing-contract > div { background:var(--steel-soft); padding:0.58rem 0.82rem; }
+        .vs-processing-contract b, .vs-processing-contract span { display:block; }
+        .vs-processing-contract b { color:var(--primary); font-size:0.65rem; }
+        .vs-processing-contract span { color:var(--ink-soft); font-size:0.75rem; margin-top:0.14rem; line-height:1.4; }
+        .vs-metric { background: var(--paper); border: 1px solid var(--line); border-top: 3px solid var(--steel); border-radius: 6px; padding: 0.82rem 0.92rem; min-height: 108px; box-shadow: var(--shadow-soft); }
         .vs-metric.teal { border-top-color: var(--teal); }
-        .vs-metric.amber { border-top-color: var(--violet); }
+        .vs-metric.amber { border-top-color: var(--review); }
         .vs-metric.coral { border-top-color: var(--rose); }
         .vs-metric span { display:block; color: var(--muted); font-size: 0.76rem; }
         .vs-metric b { display:block; color: var(--ink); font-size: 1.68rem; line-height: 1.35; margin-top: 0.12rem; }
@@ -1554,25 +1650,34 @@ def _inject_css() -> None:
         .vs-list-row:last-of-type { border-radius:0 0 7px 7px; }
         .vs-list-row div { display:flex; justify-content:space-between; gap: 0.5rem; }
         .vs-list-row span, .vs-list-row small { color: var(--muted); font-size: 0.75rem; }
+        .vs-state-pill { display:inline-flex !important; width:max-content; align-items:center; padding:0.16rem 0.42rem; border-radius:999px; border:1px solid var(--line); background:var(--steel-soft); }
+        .vs-state-pill.release { color:#3f756e !important; border-color:#b9d2ce; background:var(--teal-soft); }
+        .vs-state-pill.review { color:#84652f !important; border-color:#dbc9aa; background:var(--review-soft); }
+        .vs-state-pill.retake { color:#955a55 !important; border-color:#dfbbb7; background:var(--rose-soft); }
         .vs-step-strip { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 0; border: 1px solid var(--line); background: var(--paper); border-radius:7px; overflow:hidden; margin-bottom: 0.75rem; }
-        .vs-step-strip div { display:flex; align-items:center; gap:0.6rem; padding:0.72rem 0.82rem; border-right:1px solid var(--line); }
+        .vs-step-strip div { display:flex; align-items:center; gap:0.6rem; padding:0.68rem 0.82rem; border-right:1px solid var(--line); border-top:3px solid transparent; }
         .vs-step-strip div:last-child { border-right: 0; }
-        .vs-step-strip b { width:27px; height:27px; border:1px solid var(--primary); color:var(--primary); display:grid; place-items:center; border-radius:50%; font-size:0.74rem; flex:0 0 auto; }
+        .vs-step-strip div.current { border-top-color:var(--primary); background:var(--primary-soft); }
+        .vs-step-strip div.done { border-top-color:var(--teal); }
+        .vs-step-strip b { width:27px; height:27px; border:1px solid var(--line-strong); color:var(--muted); display:grid; place-items:center; border-radius:50%; font-size:0.74rem; flex:0 0 auto; }
+        .vs-step-strip .current b { border-color:var(--primary); color:var(--primary); background:#fff; }
+        .vs-step-strip .done b { border-color:var(--teal); color:#fff; background:var(--teal); }
         .vs-step-strip span { font-size:0.8rem; font-weight:700; }
+        .vs-step-strip small { display:block; margin-top:0.05rem; color:var(--muted); font-size:0.62rem; font-weight:500; }
         .vs-guidance-grid { display:grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap:0.5rem; margin:0.65rem 0 0.85rem; }
         .vs-guidance-grid div { border:1px solid var(--line); background:var(--paper); padding:0.62rem; border-radius:7px; display:flex; gap:0.45rem; align-items:center; }
         .vs-guidance-grid b { color:var(--primary); }
         .vs-guidance-grid span { font-size:0.74rem; }
         .vs-result { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:1px; border:1px solid var(--line); border-left:5px solid var(--steel); border-radius:7px; overflow:hidden; background:var(--line); margin:0.45rem 0 0.85rem; box-shadow:0 4px 16px rgba(34,63,76,0.04); }
         .vs-result.teal { border-left-color:var(--teal); }
-        .vs-result.amber { border-left-color:var(--violet); }
+        .vs-result.amber { border-left-color:var(--review); }
         .vs-result.coral { border-left-color:var(--rose); }
         .vs-result > div { padding:0.7rem 0.82rem; min-width:0; background:var(--paper); }
         .vs-result small, .vs-result span { display:block; color:var(--muted); font-size:0.73rem; line-height:1.4; overflow-wrap:anywhere; }
         .vs-result b { display:block; font-size:1rem; color:var(--ink); margin-top:0.15rem; }
         .vs-empty { min-height:155px; display:grid; place-content:center; text-align:center; border:1px dashed var(--line-strong); border-radius:7px; background:#f9fbfc; color:var(--muted); padding:1rem; }
         .vs-empty b, .vs-empty span { display:block; }
-        .vs-factor { border-left:4px solid var(--violet); background:var(--paper); border-top:1px solid var(--line); border-right:1px solid var(--line); border-bottom:1px solid var(--line); border-radius:0 7px 7px 0; padding:0.62rem 0.74rem; margin-bottom:0.48rem; }
+        .vs-factor { border-left:4px solid var(--review); background:var(--paper); border-top:1px solid var(--line); border-right:1px solid var(--line); border-bottom:1px solid var(--line); border-radius:0 7px 7px 0; padding:0.62rem 0.74rem; margin-bottom:0.48rem; }
         .vs-factor.good { border-left-color:var(--teal); }
         .vs-factor b, .vs-factor span, .vs-factor small { display:block; }
         .vs-factor span { color:var(--muted); font-size:0.75rem; }
@@ -1584,7 +1689,7 @@ def _inject_css() -> None:
         .vs-report-sheet header p { margin:0; font-size:0.75rem; color:var(--muted); }
         .vs-status { display:inline-flex; align-items:center; padding:0.36rem 0.64rem; border:1px solid; border-radius:999px; font-size:0.76rem; white-space:nowrap; }
         .vs-status.release { color:#477771; border-color:#8eb7b2; background:var(--teal-soft); }
-        .vs-status.review { color:#626b91; border-color:#b3b8cf; background:var(--violet-soft); }
+        .vs-status.review { color:#84652f; border-color:#dbc9aa; background:var(--review-soft); }
         .vs-status.retake { color:#965f65; border-color:#d3a7aa; background:var(--rose-soft); }
         .vs-report-hero { display:grid; grid-template-columns:0.65fr 0.65fr 1.7fr; gap:1px; background:var(--line); border-bottom:1px solid var(--line); }
         .vs-report-hero > div { background:#ffffff; padding:0.82rem 1.05rem; min-width:0; }
@@ -1596,7 +1701,7 @@ def _inject_css() -> None:
         .vs-report-recommendation { background:var(--primary-soft); }
         .vs-report-recommendation b { display:block; margin:0.28rem 0 0.18rem; color:var(--primary-dark); }
         .vs-report-sheet footer { padding:0.62rem 1.25rem; color:var(--muted); font-size:0.69rem; background:#fbfcfd; }
-        .vs-action-head { border-left:5px solid var(--violet); background:var(--violet-soft); padding:0.85rem 1rem; border-radius:0 7px 7px 0; margin:0.2rem 0 0.75rem; }
+        .vs-action-head { border-left:5px solid var(--review); background:var(--review-soft); padding:0.85rem 1rem; border-radius:0 7px 7px 0; margin:0.2rem 0 0.75rem; }
         .vs-action-head.release { border-left-color:var(--teal); background:var(--teal-soft); }
         .vs-action-head.retake { border-left-color:var(--rose); background:var(--rose-soft); }
         .vs-action-head b, .vs-action-head p { display:block; margin:0.22rem 0 0; }
@@ -1640,9 +1745,10 @@ def _inject_css() -> None:
         @media (max-width: 900px) {
             .block-container { padding-top: 3.6rem; padding-left: 1rem; padding-right: 1rem; }
             .vs-page-title { font-size: 1.48rem !important; }
-            .vs-env { margin-top: 0; flex-wrap: wrap; gap: 0.25rem 0.7rem; }
+            .vs-env { margin-top: 0; }
             .vs-step-strip { grid-template-columns: repeat(2,minmax(0,1fr)); }
             .vs-step-strip div:nth-child(2) { border-right:0; }
+            .vs-step-strip div:nth-child(-n+2) { border-bottom:1px solid var(--line); }
             .vs-guidance-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
             .vs-result { grid-template-columns: repeat(2,minmax(0,1fr)); }
             .vs-metric { min-height: 104px; }
@@ -1653,9 +1759,12 @@ def _inject_css() -> None:
             .vs-workflow-band ol { grid-template-columns:repeat(2,minmax(0,1fr)); }
             .vs-workflow-band li:nth-child(3) { border-top:1px solid var(--line); }
             .vs-workflow-band li:nth-child(4) { border-top:1px solid var(--line); }
-            .vs-step-strip, .vs-guidance-grid, .vs-io-strip { grid-template-columns: 1fr; }
+            .vs-step-strip, .vs-guidance-grid, .vs-io-strip, .vs-processing-contract { grid-template-columns: 1fr; }
             .vs-step-strip div { border-right: 0; border-bottom: 1px solid var(--line); }
             .vs-step-strip div:last-child { border-bottom: 0; }
+            .vs-env { grid-template-columns:1fr; }
+            .vs-env > div { padding:0.18rem 0; border-right:0; border-bottom:1px solid var(--line); }
+            .vs-env > div:last-child { border-bottom:0; }
             .vs-result { grid-template-columns: 1fr; }
             .vs-report-sheet header { flex-direction:column; }
             .vs-report-hero { grid-template-columns:1fr; }

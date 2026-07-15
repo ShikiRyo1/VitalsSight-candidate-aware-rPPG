@@ -687,6 +687,30 @@ def test_assessment_reset_rebuilds_the_upload_widget() -> None:
     assert source.count("_reset_upload_widget()") >= 2
 
 
+def test_assessment_controls_preserve_canonical_state_across_languages() -> None:
+    source = (Path(__file__).resolve().parents[1] / "app" / "product_console.py").read_text(encoding="utf-8")
+
+    assert 'def _sync_language() -> None:' in source
+    assert 'def _sync_assessment_control(field: str, widget_key: str) -> None:' in source
+    assert 'language_suffix = "zh" if _is_zh() else "en"' in source
+    for field in ("vs_purpose", "vs_consent", "vs_retention", "vs_source"):
+        assert f'"{field}"' in source
+        assert f'f"{field}_control_' in source
+
+
+def test_assessment_exposes_progress_privacy_and_output_contracts() -> None:
+    source = (Path(__file__).resolve().parents[1] / "app" / "product_console.py").read_text(encoding="utf-8")
+
+    assert "vs-processing-contract" in source
+    assert "Raw video stays local and is deleted after analysis in the recommended mode." in source
+    assert "Review and retake states never publish HR." in source
+    assert '"done": _ui("Complete",' in source
+    assert '"current": _ui("Current",' in source
+    assert '"pending": _ui("Next",' in source
+    assert "vs-step-strip div.current" in source
+    assert "vs-step-strip div.done" in source
+
+
 def test_retake_summary_presents_the_acquisition_gate_separately() -> None:
     source = (Path(__file__).resolve().parents[1] / "app" / "product_console.py").read_text(encoding="utf-8")
 
