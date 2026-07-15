@@ -14,9 +14,17 @@ Verification date: 2026-07-15
 - The REST API shares the SQLite evidence store and output contract with the UI. Multipart uploads are deleted after processing in the tested delete-after-analysis mode.
 - Chinese and English interfaces share the same case state and numeric values.
 
+## Validated source snapshot
+
+- Git commit: `d6e152ad2beb1461c3cf4e5a0a88e0155e56595e`
+- Git tree: `c9a1417a22e981431b162887728310d513ba5096`
+- Unit/static evidence: `52/52` passing
+- Browser/UI evidence: `119/119` passing
+- Real-video backend/API evidence: `21/21` contract matches
+
 ## Automated checks
 
-The full suite contains 49 passing tests. It covers strict non-release HR withholding, finite release values, candidate-track aggregation, evidence attribution, quality-gate semantics, SQLite persistence, bilingual reports, preflight and runtime failures, API endpoints, raw-video deletion, uploader reset, sidebar recovery, navigation behavior, runtime-model installation and provenance, explicit rejection of non-converged ICA routes, and the rule that static-ROI fallback evidence can never enter a release state. Dedicated regressions confirm that a preflight `retake` report does not mislabel an unentered candidate stage or a passing luma check as a failure, that a failed ICA route is not relabelled as an independent method by silently returning GREEN, that an unpinned Face Landmarker asset fails runtime integrity validation, that legacy Face Mesh cannot enter the release path, and that exported reports redact legacy absolute paths.
+The full suite contains 52 passing tests. It covers strict non-release HR withholding, finite release values, candidate-track aggregation, evidence attribution, quality-gate semantics, SQLite persistence, bilingual reports, preflight and runtime failures, API endpoints, raw-video deletion, uploader reset, sidebar recovery, navigation behavior, runtime-model installation and provenance, explicit rejection of non-converged ICA routes, and the rule that static-ROI fallback evidence can never enter a release state. Dedicated regressions confirm that a preflight `retake` report does not mislabel an unentered candidate stage or a passing luma check as a failure, that a failed ICA route is not relabelled as an independent method by silently returning GREEN, that an unpinned Face Landmarker asset fails runtime integrity validation, that legacy Face Mesh cannot enter the release path, that exported reports redact legacy absolute paths, that assessment controls preserve canonical values across language switches, and that the four-stage progress, privacy contract, and HR-withholding output contract remain visible.
 
 ```bash
 .venv/Scripts/python -m pytest -q
@@ -24,7 +32,7 @@ The full suite contains 49 passing tests. It covers strict non-release HR withho
 git diff --check
 ```
 
-Observed result: `49 passed`; compile and whitespace checks passed.
+Observed result: `52 passed`; syntax and whitespace checks passed.
 
 ## Real-video implementation conformance
 
@@ -32,25 +40,28 @@ Seven hash-locked MCD-rPPG fixtures form a post hoc curated regression/conforman
 
 The released fixture produced 75.0628 BPM. A reference-only Lead-II ECG comparison produced 77.1208 BPM, an absolute difference of 2.0581 BPM. ECG/reference HR was not passed to candidate construction, selection, or gating. The fixtures were curated for behavioral conformance, not sampled as an independent accuracy cohort.
 
-Evidence is written to the operator-selected `output/real_video_product_validation_<run>/` directory. The v2 fixture contract preserves the frozen state expectation and HR-withholding rule while defining the 9825 review invariant at the mechanism level (`cross_window_candidate_track`), because both no-stable-track and competing-track subtypes require the same non-release action.
+Final evidence is retained in `output/real_video_product_validation_20260715_ui_final_v2/`. The v2 fixture contract preserves the frozen state expectation and HR-withholding rule while defining the 9825 review invariant at the mechanism level (`cross_window_candidate_track`), because both no-stable-track and competing-track subtypes require the same non-release action.
 
 ## Real-browser checks
 
-Playwright exercised the final service at 1440 x 1000 and in a separate fresh 390 x 844 mobile context. The committed browser assertions verified:
+Playwright exercised the final service at 1440 x 1000 and in a separate fresh 390 x 844 mobile context. All 119 assertions passed. The committed browser checks verified:
 
 - real-video release, review, and retake outcomes against their expected states;
-- consent warnings, run feedback, clear/reset behavior, and raw-upload deletion;
-- all eight workspaces, the role-based guide content, and its complete start action;
+- consent warnings, purpose/retention state, privacy/output contracts, four-stage progress, run feedback, clear/reset behavior, and raw-upload deletion;
+- stable, conflict, and low-light built-in demonstrations in addition to the three real-video states;
+- Chinese/English round-trip localization without mixed assessment labels;
+- all eight workspaces, overview commands, header/sidebar guides, role-based guide content, and role-specific start actions;
 - PDF, JSON, Markdown, CSV, and OpenAPI downloads;
 - report detail, evidence-to-action, attribution, review/audit, and structured-data tabs;
 - review assignment, note, resolution, save feedback, and `review.updated` persistence;
 - integration audit persistence in the shared case store, operator save, and non-destructive demo restoration;
 - sidebar restoration on desktop and in a fresh mobile session, plus automatic mobile close after navigation;
-- no page-level horizontal overflow at 390 px and zero browser-console errors.
+- explicit case-search empty/clear states and protocol evidence rendering;
+- no page-level horizontal overflow at 390 px and zero browser-console, page, or unexpected HTTP errors.
 
 The harness refuses to run against a dirty working tree or a commit argument that differs from the checked-out Git commit. Both the API and Streamlit service publish their own build commit/tree, and the harness compares those identities with the validating checkout before exercising the workflow. The manifest records the validated service build, commit, and Git tree, so the browser evidence is source-bound rather than a free-form session label.
 
-The final desktop release case reported 75.1 BPM and an acquisition-gate state of Passed. The final review and retake cases withheld HR. The browser console, page-error stream and unexpected HTTP-response error list were empty. Screenshots, DOM text snapshots, downloads, database and logs are retained under the operator-selected `output/browser_validation_<run>/` directory.
+The final desktop release case reported 75.1 BPM and an acquisition-gate state of Passed. The final review and retake cases withheld HR. The browser console, page-error stream and unexpected HTTP-response error list were empty. Screenshots, DOM text snapshots, downloads, database and logs are retained in `output/ui_refinement_20260715_final_v7/`.
 
 ## Defects repaired
 
@@ -70,6 +81,10 @@ The final desktop release case reported 75.1 BPM and an acquisition-gate state o
 14. FastICA convergence warnings are promoted to route failures; an unconverged or failed ICA output is omitted rather than being counted or replaced by a GREEN signal under the ICA label. Route name, region, window, error class, and omission count remain in runtime evidence.
 15. Exported evidence reports expose only detector asset names and hashes, not absolute workstation paths.
 16. Browser QA now uses a repository-local pinned Playwright dependency, a clean-tree/commit gate, and a separate fresh mobile browser context.
+17. Language switching now synchronizes canonical assessment values instead of leaving stale translated widget labels.
+18. Assessment progress exposes current, completed, and next stages, alongside visible raw-video privacy and non-release HR-withholding contracts.
+19. The visual system now uses a restrained clinical blue, teal, muted amber, and muted coral palette with consistent state semantics across cards, tables, reports, and charts.
+20. Overview, assessment, case, review, report, evidence, integration, help, export, reset, and mobile navigation command families all have visible outcomes and browser coverage.
 
 ## Product boundary
 

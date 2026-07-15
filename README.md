@@ -68,7 +68,7 @@ The endpoint returns `release`, `review`, or `retake`. Only `release` may contai
 
 The previous experiment-heavy dashboard is retained at `app/legacy_research_dashboard.py` for provenance, but it is no longer the default product surface. See [docs/PRODUCT_BENCHMARK_AND_COMPLETION.md](docs/PRODUCT_BENCHMARK_AND_COMPLETION.md) for the official-source product benchmark and implemented workflow contract.
 
-The final functional and visual verification record is in [docs/PRODUCT_QA_REPORT.md](docs/PRODUCT_QA_REPORT.md).
+The final functional and visual verification record is in [docs/PRODUCT_QA_REPORT.md](docs/PRODUCT_QA_REPORT.md). The finite command-by-command coverage contract is recorded in [docs/PRODUCT_FUNCTION_MATRIX_20260715.md](docs/PRODUCT_FUNCTION_MATRIX_20260715.md).
 
 The frozen real-video backend/API replay and the real-browser workflow are reproducible with the committed validation harnesses:
 
