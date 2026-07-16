@@ -74,24 +74,41 @@ def inspect_input(message: str) -> InputInspection:
     return InputInspection(True, "allowed", "", "")
 
 
-def collect_allowed_measurements(tool_results: list[dict[str, Any]]) -> set[float]:
-    allowed: set[float] = set()
+def collect_allowed_measurements(tool_results: list[dict[str, Any]]) -> dict[str, set[float]]:
+    allowed: dict[str, set[float]] = {"bpm": set(), "fps": set(), "%": set()}
 
-    def visit(value: Any) -> None:
+    def add(unit: str, value: float) -> None:
+        for precision in (1, 2, 3, 4):
+            allowed[unit].add(round(float(value), precision))
+
+    trusted_numeric_text = {"excerpt", "verification", "because", "rationale", "expected_outcome"}
+
+    def visit(value: Any, *, field: str = "") -> None:
         if isinstance(value, bool) or value is None:
             return
         if isinstance(value, (int, float)):
-            allowed.add(round(float(value), 4))
-            allowed.add(round(float(value), 3))
-            allowed.add(round(float(value), 2))
-            allowed.add(round(float(value), 1))
+            normalized_field = field.lower()
+            if normalized_field.endswith("_bpm") or normalized_field in {"bpm", "heart_rate"}:
+                add("bpm", float(value))
+            elif normalized_field.endswith("_fps") or normalized_field in {"fps", "frame_rate"}:
+                add("fps", float(value))
+            elif normalized_field.endswith(("_fraction", "_score", "_risk", "_coverage")):
+                numeric = float(value)
+                if 0.0 <= numeric <= 1.0:
+                    add("%", numeric * 100.0)
+            elif normalized_field.endswith(("_percent", "_percentage", "_pct")):
+                add("%", float(value))
+            return
+        if isinstance(value, str) and field in trusted_numeric_text:
+            for number, unit in re.findall(r"(?<![A-Za-z0-9])(-?\d+(?:\.\d+)?)\s*(BPM|fps|%)", value, re.IGNORECASE):
+                add(unit.lower(), float(number))
             return
         if isinstance(value, dict):
-            for child in value.values():
-                visit(child)
+            for key, child in value.items():
+                visit(child, field=str(key))
         elif isinstance(value, list):
             for child in value:
-                visit(child)
+                visit(child, field=field)
 
     visit(tool_results)
     return allowed
@@ -164,11 +181,18 @@ def validate_generated_answer(
         checks.append("non-release HR withholding preserved")
 
     allowed = collect_allowed_measurements(tool_results)
-    measured = [float(value) for value in re.findall(r"(?<![A-Za-z0-9])(-?\d+(?:\.\d+)?)\s*(?:BPM|fps|%)", normalized, flags=re.IGNORECASE)]
-    for value in measured:
+    measured = [
+        (float(value), unit.lower())
+        for value, unit in re.findall(
+            r"(?<![A-Za-z0-9])(-?\d+(?:\.\d+)?)\s*(BPM|fps|%)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+    ]
+    for value, unit in measured:
         candidates = {round(value, precision) for precision in (1, 2, 3, 4)}
-        if not candidates & allowed:
-            return False, checks, f"unsupported numeric claim: {value}"
+        if not candidates & allowed[unit]:
+            return False, checks, f"unsupported numeric claim: {value} {unit}"
     checks.append("numeric claims grounded in tool output")
     return True, checks, None
 

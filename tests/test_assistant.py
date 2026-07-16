@@ -197,6 +197,22 @@ def test_grounded_model_answer_passes_post_validation(tmp_path: Path) -> None:
     assert result.validation.fallback_reason is None
 
 
+def test_grounded_fps_in_versioned_knowledge_passes_post_validation(tmp_path: Path) -> None:
+    provider = ScriptedProvider("Use a recording rate of at least 15 fps [E1].", used_ids=["E1"])
+    engine = AssistantOrchestrator(seeded_store(tmp_path / "assistant.db"), provider=provider)
+    result = engine.chat(request(None, "What are the minimum recording requirements in fps?"))
+    assert result.provider == "scripted"
+    assert result.degraded is False
+
+
+def test_user_query_number_does_not_ground_a_model_numeric_claim(tmp_path: Path) -> None:
+    provider = ScriptedProvider("Use a recording rate of 999 fps [E1].", used_ids=["E1"])
+    engine = AssistantOrchestrator(seeded_store(tmp_path / "assistant.db"), provider=provider)
+    result = engine.chat(request(None, "Can I use 999 fps?"))
+    assert result.provider == "deterministic_fallback"
+    assert result.validation.fallback_reason == "unsupported numeric claim: 999.0 fps"
+
+
 def test_model_boundary_disclaimer_is_not_misclassified_as_clinical_advice(tmp_path: Path) -> None:
     provider = ScriptedProvider(
         "The assistant cannot change HR, override gates, diagnose conditions, or recommend treatment; it can explain the recorded workflow [E1].",
