@@ -9,6 +9,15 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from src.assistant import (
+    AssistantChatRequest,
+    AssistantChatResponse,
+    AssistantConfirmRequest,
+    AssistantConfirmResponse,
+    AssistantHealthResponse,
+    AssistantOrchestrator,
+)
+from src.assistant.provider import ChatProvider
 from src.product.console_service import (
     CLAIM_BOUNDARY,
     REPORT_VERSION,
@@ -42,9 +51,21 @@ def default_db_path() -> Path:
     return Path(__file__).resolve().parents[2] / "runtime" / "vitalsight_console.db"
 
 
-def create_app(db_path: str | Path | None = None, *, seed_demo: bool = True) -> FastAPI:
+def create_app(
+    db_path: str | Path | None = None,
+    *,
+    seed_demo: bool = True,
+    assistant_provider: ChatProvider | None = None,
+    assistant_actions_enabled: bool | None = None,
+) -> FastAPI:
     resolved_db_path = Path(db_path or default_db_path())
     store = ConsoleStore(resolved_db_path)
+    assistant = AssistantOrchestrator(
+        store,
+        db_path=resolved_db_path,
+        provider=assistant_provider,
+        actions_enabled=assistant_actions_enabled,
+    )
     upload_dir = Path(os.getenv("VITALSSIGHT_UPLOAD_DIR", resolved_db_path.parent / "uploads" / "api"))
     upload_dir.mkdir(parents=True, exist_ok=True)
     max_upload_bytes = int(os.getenv("VITALSSIGHT_MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))
@@ -61,6 +82,7 @@ def create_app(db_path: str | Path | None = None, *, seed_demo: bool = True) -> 
         ),
     )
     app.state.store = store
+    app.state.assistant = assistant
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -80,6 +102,36 @@ def create_app(db_path: str | Path | None = None, *, seed_demo: bool = True) -> 
     def list_cases() -> dict[str, Any]:
         cases = store.list_cases()
         return sanitize_report_value({"count": len(cases), "items": cases, "claim_boundary": CLAIM_BOUNDARY})
+
+    @app.get("/api/v1/assistant/health", response_model=AssistantHealthResponse)
+    def assistant_health() -> AssistantHealthResponse:
+        return assistant.health()
+
+    @app.post("/api/v1/assistant/chat", response_model=AssistantChatResponse)
+    def assistant_chat(request: AssistantChatRequest) -> AssistantChatResponse:
+        return assistant.chat(request)
+
+    @app.post("/api/v1/assistant/confirm", response_model=AssistantConfirmResponse)
+    def assistant_confirm(request: AssistantConfirmRequest) -> AssistantConfirmResponse:
+        try:
+            return assistant.confirm(request.token, actor=request.actor)
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/v1/assistant/reject", response_model=AssistantConfirmResponse)
+    def assistant_reject(request: AssistantConfirmRequest) -> AssistantConfirmResponse:
+        try:
+            return assistant.reject(request.token, actor=request.actor)
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/api/v1/assessments/video", status_code=201)
     def assess_video(

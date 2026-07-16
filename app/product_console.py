@@ -17,6 +17,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from src.assistant import AssistantChatRequest, AssistantOrchestrator
+from src.assistant.schemas import AssistantLanguage, AssistantRole, ChatTurn
 from src.product.console_api import create_app
 from src.product.console_service import (
     ATTRIBUTION_BOUNDARY,
@@ -53,6 +55,7 @@ SECTIONS = [
     "Cases",
     "Review queue",
     "Reports",
+    "AI assistant",
     "Evidence",
     "Integrations",
     "Help & settings",
@@ -64,6 +67,7 @@ ZH = {
     "Cases": "案例",
     "Review queue": "复核队列",
     "Reports": "报告中心",
+    "AI assistant": "AI 助手",
     "Evidence": "证据与性能",
     "Integrations": "系统集成",
     "Help & settings": "帮助与设置",
@@ -159,6 +163,8 @@ def run() -> None:
         _review_queue(store)
     elif section == "Reports":
         _reports(store)
+    elif section == "AI assistant":
+        _assistant(store)
     elif section == "Evidence":
         _evidence()
     elif section == "Integrations":
@@ -183,6 +189,11 @@ def _init_state() -> None:
         "vs_upload_path": "",
         "vs_upload_widget_version": 0,
         "vs_assessment_result": None,
+        "vs_assistant_history": [],
+        "vs_assistant_role": "operator",
+        "vs_assistant_case": "",
+        "vs_assistant_allow_actions": False,
+        "vs_assistant_pending_prompt": "",
         "vs_flash": "",
         "vs_flash_kind": "success",
         # Keep the first mobile render interactive; only later workspace changes
@@ -200,6 +211,11 @@ def _init_state() -> None:
 @st.cache_resource(show_spinner=False)
 def _store() -> ConsoleStore:
     return ConsoleStore(DB_PATH)
+
+
+@st.cache_resource(show_spinner=False)
+def _assistant_engine() -> AssistantOrchestrator:
+    return AssistantOrchestrator(ConsoleStore(DB_PATH), db_path=DB_PATH)
 
 
 def _seed_if_empty(store: ConsoleStore) -> None:
@@ -253,6 +269,7 @@ def _header(section: str) -> None:
         "Cases": _ui("Searchable evidence registry with decision-level provenance", "可搜索的证据登记与决策级溯源"),
         "Review queue": _ui("Assign, document, and close review or retake work", "分派、记录并闭环复核或重采任务"),
         "Reports": _ui("Versioned evidence reports with policy attribution", "生成带策略归因和版本信息的证据报告"),
+        "AI assistant": _ui("Evidence-bounded guidance, report explanation, and controlled workflow navigation", "基于证据的引导、报告解释与受控流程导航"),
         "Evidence": _ui("Protocol-bound metrics and non-negotiable claim boundaries", "协议限定的性能指标与不可突破的证据边界"),
         "Integrations": _ui("Validated payloads, OpenAPI schema, and report endpoints", "校验载荷、OpenAPI 规范和报告接口"),
         "Help & settings": _ui("Acquisition guidance, status definitions, privacy, and workspace settings", "采集指引、状态定义、隐私与工作区设置"),
@@ -286,6 +303,13 @@ def _header(section: str) -> None:
             ):
                 _set_flash(_ui("The full workflow guide is open.", "已打开完整流程教学。"), "info")
                 _go("Help & settings")
+        if section != "AI assistant" and st.button(
+            _ui("Ask AI assistant", "询问 AI 助手"),
+            icon=":material/smart_toy:",
+            width="stretch",
+            key=f"vs_header_assistant_{section}",
+        ):
+            _go("AI assistant")
     st.markdown("<div class='vs-rule'></div>", unsafe_allow_html=True)
 
 
@@ -1028,6 +1052,228 @@ def _action_plan_panel(plan: dict[str, Any], *, compact: bool) -> None:
         st.caption(_data_text(plan.get("boundary")))
 
 
+def _assistant(store: ConsoleStore) -> None:
+    engine = _assistant_engine()
+    health = engine.health()
+    ready = health.model_available
+    status_class = "ready" if ready else "degraded"
+    status_title = _ui("Qwen assistant ready", "Qwen 助手已就绪") if ready else _ui("Evidence fallback active", "证据降级模式已启用")
+    status_detail = (
+        _ui(
+            f"{health.provider} · {health.model} · local knowledge {health.knowledge_chunks} chunks",
+            f"{health.provider} · {health.model} · 本地知识 {health.knowledge_chunks} 个片段",
+        )
+        if ready
+        else _ui(
+            "The language model is offline or unavailable. Case tools and deterministic guidance remain operational.",
+            "语言模型离线或不可用；案例工具和确定性证据引导仍可正常运行。",
+        )
+    )
+    st.markdown(
+        f"<div class='vs-assistant-status {status_class}'><i></i><div><b>{_escape(status_title)}</b>"
+        f"<span>{_escape(status_detail)}</span></div></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div class='vs-assistant-contract'><div><span>{_escape(_ui('SYSTEM FACTS', '系统事实'))}</span>"
+        f"<b>{_escape(_ui('Measurements, output state, policy and audit remain authoritative.', '测量值、输出状态、策略和审计记录始终是权威来源。'))}</b></div>"
+        f"<div><span>{_escape(_ui('AI EXPLANATION', 'AI 解释'))}</span>"
+        f"<b>{_escape(_ui('The assistant explains and navigates; it cannot override the gate.', '助手负责解释与导航，不能覆盖门控决策。'))}</b></div></div>",
+        unsafe_allow_html=True,
+    )
+
+    cases = store.list_cases()
+    case_lookup = {str(case["case_id"]): case for case in cases}
+    case_options = [""] + list(case_lookup)
+    focus = str(st.session_state.get("vs_focus_case") or "")
+    if not st.session_state.get("vs_assistant_case") and focus in case_lookup:
+        st.session_state["vs_assistant_case"] = focus
+
+    role_col, case_col, mode_col = st.columns([0.75, 1.35, 0.9])
+    role_labels = {
+        "operator": _ui("Capture operator", "采集操作员"),
+        "reviewer": _ui("Evidence reviewer", "证据复核人员"),
+        "clinician": _ui("Clinical reader", "医护阅读者"),
+        "admin": _ui("Administrator", "管理员"),
+    }
+    role = role_col.selectbox(
+        _ui("Assistant role", "助手角色"),
+        list(role_labels),
+        format_func=lambda value: role_labels[value],
+        key="vs_assistant_role",
+    )
+    selected_case = case_col.selectbox(
+        _ui("Evidence context", "证据上下文"),
+        case_options,
+        format_func=lambda value: (
+            _ui("General guidance (no case)", "通用指引（不指定案例）")
+            if not value
+            else f"{case_lookup[value].get('display_id')} · {_decision_text(case_lookup[value].get('decision'))}"
+        ),
+        key="vs_assistant_case",
+    )
+    if selected_case:
+        st.session_state["vs_focus_case"] = selected_case
+    can_propose = role in {"reviewer", "admin"} and health.actions_enabled
+    allow_actions = mode_col.toggle(
+        _ui("Prepare review updates", "准备复核更新"),
+        value=bool(st.session_state.get("vs_assistant_allow_actions")) if can_propose else False,
+        disabled=not can_propose,
+        help=_ui(
+            "The assistant can only prepare a change. A second explicit confirmation is always required.",
+            "助手只能准备变更，真正保存始终需要第二次明确确认。",
+        ),
+        key="vs_assistant_allow_actions",
+    )
+    mode_col.caption(
+        _ui("Actions enabled by policy", "策略已启用动作")
+        if health.actions_enabled
+        else _ui("Read-only policy", "只读策略")
+    )
+
+    st.subheader(_ui("Ask from the workflow", "从工作流直接提问"))
+    quick_prompts = [
+        (_ui("Explain this state", "解释当前状态"), _ui("Why is this case in its current state?", "为什么这个案例处于当前状态？"), ":material/help_center:"),
+        (_ui("Retake guidance", "重拍指引"), _ui("What exactly should be corrected before the next recording?", "下一次录制前具体需要纠正什么？"), ":material/replay:"),
+        (_ui("Report summary", "报告摘要"), _ui("Summarize this evidence report and its limitations.", "总结这份证据报告及其局限性。"), ":material/summarize:"),
+        (_ui("Failed metrics", "失败指标"), _ui("Which recorded checks failed or warned, and why?", "哪些已记录检查失败或警告，原因是什么？"), ":material/monitor_heart:"),
+    ]
+    quick_cols = st.columns(4)
+    for index, (label, prompt, icon) in enumerate(quick_prompts):
+        if quick_cols[index].button(label, icon=icon, width="stretch", key=f"vs_assistant_quick_{index}"):
+            st.session_state["vs_assistant_pending_prompt"] = prompt
+            st.rerun()
+
+    history: list[dict[str, Any]] = st.session_state.get("vs_assistant_history", [])
+    toolbar_left, toolbar_right = st.columns([1, 0.25])
+    toolbar_left.caption(
+        _ui(
+            "Answers cite case, report, policy, or local knowledge evidence. Conversation text stays in this browser session; audit stores hashes, not raw chat.",
+            "回答引用案例、报告、策略或本地知识证据。对话文本仅保留在当前浏览器会话；审计仅保存哈希，不保存原始对话。",
+        )
+    )
+    if toolbar_right.button(
+        _ui("Clear chat", "清空对话"),
+        icon=":material/delete_sweep:",
+        width="stretch",
+        disabled=not bool(history),
+        key="vs_assistant_clear",
+    ):
+        st.session_state["vs_assistant_history"] = []
+        st.rerun()
+
+    for index, entry in enumerate(history):
+        role_name = str(entry.get("role") or "assistant")
+        with st.chat_message(role_name):
+            if role_name == "user":
+                st.markdown(str(entry.get("content") or ""))
+            else:
+                payload = entry.get("response") or {}
+                st.markdown(str(payload.get("answer") or entry.get("content") or ""))
+                provider_label = f"{payload.get('provider', 'unknown')} · {payload.get('model', 'unknown')}"
+                if payload.get("degraded"):
+                    st.caption(_ui(f"Fallback response · {provider_label}", f"降级回答 · {provider_label}"))
+                else:
+                    st.caption(_ui(f"Local model · {provider_label}", f"本地模型 · {provider_label}"))
+                refs = payload.get("evidence_refs") or []
+                if refs:
+                    with st.expander(_ui(f"Evidence cited ({len(refs)})", f"引用证据（{len(refs)}）")):
+                        st.dataframe(
+                            pd.DataFrame(
+                                [
+                                    {
+                                        _ui("ID", "编号"): item.get("evidence_id"),
+                                        _ui("Evidence", "证据"): item.get("label"),
+                                        _ui("Source", "来源"): item.get("source"),
+                                        _ui("Recorded value", "记录值"): item.get("value"),
+                                    }
+                                    for item in refs
+                                ]
+                            ),
+                            hide_index=True,
+                            width="stretch",
+                        )
+                actions = payload.get("recommended_actions") or []
+                if actions:
+                    with st.expander(_ui("Operational next steps", "操作下一步")):
+                        for action_index, item in enumerate(actions, start=1):
+                            st.markdown(
+                                f"**{action_index}. {_escape(item.get('label'))}**  \n"
+                                f"{_escape(item.get('rationale'))}"
+                            )
+                            if item.get("verification"):
+                                st.caption(f"{_ui('Verify', '复核标准')}: {item.get('verification')}")
+                navigation = payload.get("navigation_target")
+                if navigation in SECTIONS and st.button(
+                    _ui(f"Open {navigation}", f"打开{ZH.get(navigation, navigation)}"),
+                    icon=":material/arrow_forward:",
+                    key=f"vs_assistant_nav_{index}_{navigation}",
+                ):
+                    _go(str(navigation))
+                pending = payload.get("pending_action")
+                if pending:
+                    st.warning(
+                        _ui(
+                            f"Pending only: {pending.get('summary')}. No record has changed.",
+                            f"仅为待确认动作：{pending.get('summary')}。当前尚未修改任何记录。",
+                        )
+                    )
+                    confirm_col, reject_col = st.columns(2)
+                    if confirm_col.button(
+                        _ui("Confirm and save", "确认并保存"),
+                        icon=":material/check_circle:",
+                        type="primary",
+                        width="stretch",
+                        key=f"vs_assistant_confirm_{index}",
+                    ):
+                        try:
+                            result = engine.confirm(str(pending["token"]), actor=st.session_state["vs_operator"])
+                            _set_flash(_data_text(result.message), "success")
+                        except (PermissionError, KeyError, ValueError) as error:
+                            _set_flash(str(error), "error")
+                        st.rerun()
+                    if reject_col.button(
+                        _ui("Reject change", "拒绝变更"),
+                        icon=":material/cancel:",
+                        width="stretch",
+                        key=f"vs_assistant_reject_{index}",
+                    ):
+                        try:
+                            result = engine.reject(str(pending["token"]), actor=st.session_state["vs_operator"])
+                            _set_flash(_data_text(result.message), "info")
+                        except (KeyError, ValueError) as error:
+                            _set_flash(str(error), "error")
+                        st.rerun()
+                st.caption(f"Trace {payload.get('tool_trace_id', 'N/A')} · {_data_text(payload.get('warning_or_boundary', ''))}")
+
+    prompt = st.chat_input(_ui("Ask about a case, report, retake, review, or workflow", "询问案例、报告、重拍、复核或操作流程"))
+    queued = str(st.session_state.pop("vs_assistant_pending_prompt", "") or "")
+    prompt = queued or prompt
+    if prompt:
+        prior_turns = [
+            ChatTurn(role=item["role"], content=str(item.get("content") or (item.get("response") or {}).get("answer") or ""))
+            for item in history[-8:]
+            if item.get("role") in {"user", "assistant"}
+        ]
+        history.append({"role": "user", "content": prompt})
+        request = AssistantChatRequest(
+            message=prompt,
+            case_id=selected_case or None,
+            role=AssistantRole(role),
+            language=AssistantLanguage.zh if _is_zh() else AssistantLanguage.en,
+            history=prior_turns,
+            actor=st.session_state["vs_operator"],
+            conversation_id=st.session_state.get("vs_assistant_conversation_id"),
+            allow_action_proposals=bool(allow_actions),
+        )
+        with st.spinner(_ui("Checking evidence and composing a bounded answer...", "正在核对证据并生成受约束回答……")):
+            response = engine.chat(request)
+        st.session_state["vs_assistant_conversation_id"] = response.conversation_id
+        history.append({"role": "assistant", "content": response.answer, "response": response.model_dump(mode="json")})
+        st.session_state["vs_assistant_history"] = history
+        st.rerun()
+
+
 def _evidence() -> None:
     metrics = pd.read_csv(HEADLINE_METRICS, encoding="utf-8-sig") if HEADLINE_METRICS.exists() else pd.DataFrame()
     protocol = json.loads(PROTOCOL_SUMMARY.read_text(encoding="utf-8")) if PROTOCOL_SUMMARY.exists() else {}
@@ -1100,6 +1346,10 @@ def _integrations(store: ConsoleStore) -> None:
                 ["GET", "/api/v1/reviews", _ui("Review queue", "复核队列")],
                 ["PUT", "/api/v1/reviews/{case_id}", _ui("Review update", "复核更新")],
                 ["GET", "/api/v1/cases/{case_id}/report?format=pdf", _ui("PDF report", "PDF 报告")],
+                ["GET", "/api/v1/assistant/health", _ui("Local model and fallback health", "本地模型与降级状态")],
+                ["POST", "/api/v1/assistant/chat", _ui("Evidence-bounded assistant response", "基于证据的助手回答")],
+                ["POST", "/api/v1/assistant/confirm", _ui("Explicitly confirm a pending review update", "明确确认待处理复核更新")],
+                ["POST", "/api/v1/assistant/reject", _ui("Reject a pending review update", "拒绝待处理复核更新")],
             ],
             columns=["Method", "Path", _ui("Purpose", "用途")],
         )
@@ -1130,6 +1380,7 @@ def _help_settings(store: ConsoleStore) -> None:
             _ui("Capture operator", "采集操作员"),
             _ui("Evidence reviewer", "证据复核员"),
             _ui("Report & integration", "报告与集成"),
+            _ui("AI assistant", "AI 助手"),
         ]
     )
     with guide_tabs[0]:
@@ -1174,6 +1425,18 @@ def _help_settings(store: ConsoleStore) -> None:
         if c2.button(_ui("Open integrations", "打开系统集成"), icon=":material/api:", width="stretch", key="guide_open_integrations"):
             _set_flash(_ui("Integration workspace opened.", "已打开系统集成工作区。"), "info")
             _go("Integrations")
+    with guide_tabs[3]:
+        _guide_rows(
+            [
+                (_ui("Select a role", "选择角色"), _ui("Operator, reviewer, clinical reader, or administrator", "操作员、复核人员、医护阅读者或管理员"), _ui("Choose the role whose workflow and permissions match the current task.", "选择与当前任务和权限相符的角色。"), _ui("Role-bounded tool access", "受角色约束的工具访问"), _ui("Choose evidence context", "选择证据上下文")),
+                (_ui("Select a case", "选择案例"), _ui("One case or general guidance", "一个案例或通用指引"), _ui("Use a case for metric-level explanations; use general guidance for tutorials and policy questions.", "需要指标级解释时选择案例；教程和策略问题使用通用指引。"), _ui("Case, report, policy, and knowledge citations", "案例、报告、策略和知识引用"), _ui("Ask or use a quick prompt", "提问或使用快捷问题")),
+                (_ui("Read facts separately from explanation", "区分事实与解释"), _ui("Answer, evidence IDs, action steps, provider status", "回答、证据编号、操作步骤和模型状态"), _ui("Verify system facts and evidence citations before acting on the natural-language explanation.", "根据自然语言解释采取行动前，先核对系统事实和证据引用。"), _ui("Traceable answer with a tool trace ID", "带工具追踪编号的可追溯回答"), _ui("Navigate or prepare an action", "导航或准备动作")),
+                (_ui("Confirm any change", "确认任何变更"), _ui("Pending review update token", "待处理复核更新令牌"), _ui("The assistant only prepares the update. Inspect it, then explicitly confirm or reject it.", "助手只准备更新；检查后必须明确确认或拒绝。"), _ui("Timestamped review and assistant audit event", "带时间戳的复核与助手审计事件"), _ui("Verify the saved review", "核对已保存复核")),
+            ]
+        )
+        if st.button(_ui("Open AI assistant", "打开 AI 助手"), type="primary", icon=":material/smart_toy:", width="stretch", key="guide_open_assistant"):
+            _set_flash(_ui("AI assistant opened in evidence-bounded mode.", "已用证据约束模式打开 AI 助手。"), "info")
+            _go("AI assistant")
 
     st.markdown("<div class='vs-section-rule'></div>", unsafe_allow_html=True)
     left, right = st.columns([1, 0.8], gap="large")
@@ -1727,6 +1990,20 @@ def _inject_css() -> None:
         .vs-check { display:flex; gap:0.7rem; align-items:flex-start; border-bottom:1px solid var(--line); padding:0.68rem 0; }
         .vs-check b { width:27px; height:27px; border:1px solid var(--primary); color:var(--primary); display:grid; place-items:center; border-radius:50%; font-size:0.73rem; flex:0 0 auto; }
         .vs-check span { line-height:1.5; }
+        .vs-assistant-status { display:flex; align-items:center; gap:0.78rem; border:1px solid var(--line); border-left:5px solid var(--primary); background:#fff; padding:0.78rem 0.9rem; border-radius:7px; box-shadow:var(--shadow-soft); margin-bottom:0.75rem; }
+        .vs-assistant-status i { width:10px; height:10px; border-radius:50%; background:var(--teal); box-shadow:0 0 0 5px var(--teal-soft); flex:0 0 auto; }
+        .vs-assistant-status.degraded { border-left-color:var(--review); }
+        .vs-assistant-status.degraded i { background:var(--review); box-shadow:0 0 0 5px var(--review-soft); }
+        .vs-assistant-status b, .vs-assistant-status span { display:block; }
+        .vs-assistant-status b { color:var(--ink); font-size:0.86rem; }
+        .vs-assistant-status span { color:var(--muted); font-size:0.73rem; margin-top:0.12rem; line-height:1.45; }
+        .vs-assistant-contract { display:grid; grid-template-columns:1fr 1fr; gap:1px; border:1px solid var(--line); background:var(--line); border-radius:7px; overflow:hidden; margin-bottom:1.1rem; }
+        .vs-assistant-contract > div { background:var(--paper); padding:0.7rem 0.86rem; }
+        .vs-assistant-contract span { display:block; color:var(--primary); font-size:0.64rem; font-weight:800; }
+        .vs-assistant-contract b { display:block; color:var(--ink-soft); font-size:0.76rem; line-height:1.45; margin-top:0.18rem; }
+        [data-testid="stChatMessage"] { border:1px solid var(--line); border-radius:7px; background:var(--paper); padding:0.25rem 0.55rem; box-shadow:0 3px 12px rgba(32,58,70,0.035); }
+        [data-testid="stChatMessage"] + [data-testid="stChatMessage"] { margin-top:0.55rem; }
+        [data-testid="stChatInput"] { border-color:var(--line-strong); }
         div[data-testid="stMetric"] { border:1px solid var(--line); background:var(--paper); border-radius:7px; padding:0.58rem 0.68rem; }
         .stButton > button, .stDownloadButton > button { border-radius:7px; min-height:2.52rem; font-weight:680; border-color:var(--line-strong); transition:background 140ms ease, border-color 140ms ease, box-shadow 140ms ease; }
         .stButton > button p, .stDownloadButton > button p { color:inherit !important; }
@@ -1760,6 +2037,7 @@ def _inject_css() -> None:
             .vs-workflow-band li:nth-child(3) { border-top:1px solid var(--line); }
             .vs-workflow-band li:nth-child(4) { border-top:1px solid var(--line); }
             .vs-step-strip, .vs-guidance-grid, .vs-io-strip, .vs-processing-contract { grid-template-columns: 1fr; }
+            .vs-assistant-contract { grid-template-columns:1fr; }
             .vs-step-strip div { border-right: 0; border-bottom: 1px solid var(--line); }
             .vs-step-strip div:last-child { border-bottom: 0; }
             .vs-env { grid-template-columns:1fr; }

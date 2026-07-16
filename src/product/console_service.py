@@ -190,6 +190,9 @@ CONSOLE_TEXT_ZH = {
     "If the same trigger persists after one corrected recording, keep HR withheld and assign technical review.": "若完成一次纠正性重采后同一触发项仍存在，请继续隐藏心率并分派技术复核。",
     "If acquisition remains below threshold after correction, do not force a result; inspect the camera, detector, and recording protocol.": "若纠正后采集仍低于阈值，不得强制输出；请检查相机、人脸检测器和录制流程。",
     "Operational acquisition and research-review guidance only; it is not a clinical recommendation.": "仅提供采集与研究复核层面的操作指引，不构成临床建议。",
+    "Open guided workflow": "打开引导式流程",
+    "Choose a case for evidence-specific guidance or start a consented assessment.": "请选择案例以获取证据级指引，或开始一项已获授权的评估。",
+    "Follow the recorded output contract.": "遵循已记录的输出契约。",
 }
 
 
