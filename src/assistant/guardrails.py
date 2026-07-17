@@ -205,15 +205,19 @@ def _action_plan_rows(tool_results: list[dict[str, Any]]) -> list[dict[str, Any]
 def _safe_noncausal_statement(clause: str, alias: str) -> bool:
     escaped = re.escape(alias)
     safe_after = (
-        r"within (?:the )?target|passed|met (?:the )?(?:documented )?target|"
-        r"did not (?:cause|trigger|fail)|(?:was|is) not (?:a )?(?:cause|driver|failure)|"
+        r"within (?:the )?target|passed|met (?:the )?(?:documented )?(?:target|threshold)|"
+        r"satisfied (?:the )?(?:target|threshold)|(?:was|is) sufficient|"
+        r"did not (?:cause|trigger|drive|contribute|fail)|does not (?:cause|trigger|drive|contribute)|"
+        r"(?:was|is) not (?:a )?(?:cause|driver|failure|trigger)|"
         r"not causal|no corrective action|does not require correction|"
+        r"(?:was|is) not entered|(?:was|is) not evaluated|(?:was|is) unavailable|"
         r"目标内|已通过|达标|符合.{0,12}(?:目标|阈值)|未触发|不是.{0,8}(?:原因|驱动项)|"
-        r"并非.{0,8}(?:原因|驱动项)|无需.{0,8}(?:纠正|改善|调整)"
+        r"并非.{0,8}(?:原因|驱动项)|未进入|未评估|不可用|无需.{0,8}(?:纠正|改善|调整)"
     )
     safe_before = (
-        r"within (?:the )?target|passed|not caused by|not triggered by|"
-        r"目标内|已通过|达标|不是由|并非由|未由"
+        r"within (?:the )?target|passed|not caused by|not triggered by|not driven by|"
+        r"not entered|not evaluated|unavailable|"
+        r"目标内|已通过|达标|不是由|并非由|未由|未进入|未评估|不可用"
     )
     return bool(
         re.search(rf"{escaped}.{{0,55}}(?:{safe_after})", clause, flags=re.IGNORECASE)
@@ -225,6 +229,16 @@ def causal_alignment_error(answer: str, tool_results: list[dict[str, Any]]) -> s
     """Reject causal or corrective claims about checks that did not trigger the stored action plan."""
 
     rows = _action_plan_rows(tool_results)
+    decision = ""
+    for result in tool_results:
+        plan = result.get("action_plan") if isinstance(result, dict) else None
+        if isinstance(plan, dict) and plan.get("decision"):
+            decision = str(plan["decision"]).lower()
+            break
+        case = result.get("case") if isinstance(result, dict) else None
+        if isinstance(case, dict) and case.get("decision"):
+            decision = str(case["decision"]).lower()
+            break
     non_drivers = [
         row
         for row in rows
@@ -242,16 +256,18 @@ def causal_alignment_error(answer: str, tool_results: list[dict[str, Any]]) -> s
         )
         if item.strip()
     ]
-    causal_terms = (
-        r"because|due to|caus(?:e|ed|ing)|trigger(?:ed|ing)?|contribut(?:e|ed|ing)|"
-        r"driver|fail(?:ed|ure|ing)?|insufficient|extremely low|too low|too high|"
-        r"below (?:the )?(?:target|threshold)|above (?:the )?(?:target|threshold)|"
+    negative_terms = (
+        r"fail(?:ed|ure|ing)?|insufficient|extremely low|too low|too high|"
         r"did not meet|outside (?:the )?target|needs? correction|should be corrected|"
         r"improve|increase|decrease|reduce|adjust|fix|"
-        r"因为|由于|导致|触发|驱动|失败|不足|过低|极低|过高|低于.{0,10}(?:目标|阈值)|"
-        r"高于.{0,10}(?:目标|阈值)|未达到|不达标|需要.{0,10}(?:纠正|改善|提高|降低|调整)|"
+        r"失败|不足|过低|极低|过高|未达到|不达标|需要.{0,10}(?:纠正|改善|提高|降低|调整)|"
         r"应当.{0,10}(?:纠正|改善|提高|降低|调整)|改善|提高|降低|纠正|修复|调整"
     )
+    causal_links = (
+        r"because|due to|caus(?:e|ed|ing)|trigger(?:ed|ing)?|contribut(?:e|ed|ing)|driver|"
+        r"因为|由于|导致|触发|驱动"
+    )
+    causal_terms = negative_terms if decision == "release" else rf"{negative_terms}|{causal_links}"
     for row in non_drivers:
         for alias in _signal_aliases(row):
             escaped = re.escape(alias)

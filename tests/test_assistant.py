@@ -502,6 +502,51 @@ def test_model_may_explicitly_describe_a_passing_check_as_noncausal(tmp_path: Pa
     assert "causal attribution matches triggered evidence" in result.validation.checks
 
 
+def test_release_may_use_within_target_candidate_count_as_positive_support(tmp_path: Path) -> None:
+    case = stable_case()
+    provider = ScriptedProvider(
+        "Candidate count contributed positive support to the recorded release [E1].",
+        used_ids=["E1"],
+    )
+    engine = AssistantOrchestrator(store_with_case(tmp_path / "release-support.db", case), provider=provider)
+    result = engine.chat(request(case["case_id"], "Which evidence supported release?"))
+    assert result.provider == "scripted"
+    assert result.degraded is False
+
+
+def test_review_may_explicitly_exclude_passing_candidate_agreement(tmp_path: Path) -> None:
+    case = stable_case()
+    case.update(
+        case_id="track_review_with_passing_agreement",
+        display_id="VS-TRACK-REVIEW",
+        decision="review",
+        released_hr_bpm=None,
+        competing_track_count=3,
+        review_reason="Competing cross-window candidate tracks remain plausible.",
+        recommended_action="Keep the competing tracks linked to the case and route them to review.",
+    )
+    provider = ScriptedProvider(
+        "Candidate agreement met the threshold and was not a review trigger; HR remains withheld [E1].",
+        used_ids=["E1"],
+    )
+    engine = AssistantOrchestrator(store_with_case(tmp_path / "review-exclusion.db", case), provider=provider)
+    result = engine.chat(request(case["case_id"], "Which checks did not cause review?"))
+    assert result.provider == "scripted"
+    assert result.degraded is False
+
+
+def test_retake_may_describe_unentered_candidate_stage_as_an_effect(tmp_path: Path) -> None:
+    case = duration_only_retake_case()
+    provider = ScriptedProvider(
+        "Candidate construction was not entered because preflight failed on duration; HR remains withheld [E1].",
+        used_ids=["E1"],
+    )
+    engine = AssistantOrchestrator(store_with_case(tmp_path / "retake-effect.db", case), provider=provider)
+    result = engine.chat(request(case["case_id"], "What happened after the duration failure?"))
+    assert result.provider == "scripted"
+    assert result.degraded is False
+
+
 def test_selected_case_with_incomplete_model_sections_falls_back(tmp_path: Path) -> None:
     provider = ScriptedProvider(
         "The recorded state is review and HR remains withheld [E1].",
