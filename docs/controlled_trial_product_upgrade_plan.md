@@ -1,6 +1,6 @@
 # VitalsSight controlled-trial product upgrade plan
 
-Status: implementation complete; final acceptance in progress  
+Status: implementation and finite local acceptance complete
 Baseline commit: `498f1c3`  
 Scope: controlled-trial-ready, single-instance web product; not a medical-device, public-hosting, or autonomous-clinical-release claim
 
@@ -21,7 +21,7 @@ Scope: controlled-trial-ready, single-instance web product; not a medical-device
 5. [x] Add an evidence-bounded LLM narrative addendum with JSON schema validation, evidence citations, numerical grounding and human approval.
 6. [x] Add product UI for identity, organization context, participant/consent capture, longitudinal trends, report versions and approvals.
 7. [x] Add provider-neutral OIDC configuration, privacy/retention documentation, integrity-checked backup, health checks and operational audit views. The controlled-trial release intentionally remains a single SQLite service instance; a PostgreSQL/multi-instance adapter is a later deployment phase and is not claimed here.
-8. [ ] Run the final source-bound unit, API, browser, mobile, security, real-video, AI and multimodal acceptance suites and repair every observed regression.
+8. [x] Run the final source-bound unit, API, browser, mobile, security, real-video, AI and multimodal acceptance suites and repair every observed regression. The authoritative acceptance record is `docs/CONTROLLED_TRIAL_PRODUCT_QA_20260717.md`; the generated browser manifest binds the result to the exact validated commit and tree.
 
 ## Roles
 

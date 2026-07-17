@@ -1,5 +1,7 @@
 # VitalsSight product console QA report
 
+> Historical verification snapshot from 2026-07-15. The current controlled-trial acceptance record is [CONTROLLED_TRIAL_PRODUCT_QA_20260717.md](CONTROLLED_TRIAL_PRODUCT_QA_20260717.md).
+
 Verification date: 2026-07-15
 
 ## Verified product workflow

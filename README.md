@@ -73,7 +73,7 @@ Local development uses an explicitly labelled development identity. A multi-user
 
 Reports are audience-specific and content-hashed. An optional local model may draft an evidence-cited explanation, but strict validation and reviewer approval remain mandatory. Model failure produces a labelled deterministic fallback. Only release cases generate an HR `Observation` in FHIR; review and retake generate a `Task` with HR withheld.
 
-Operational guidance is in [docs/CONTROLLED_TRIAL_OPERATIONS.md](docs/CONTROLLED_TRIAL_OPERATIONS.md), the threat/data model is in [docs/PRIVACY_SECURITY_MODEL.md](docs/PRIVACY_SECURITY_MODEL.md), report/FHIR rules are in [docs/REPORT_GOVERNANCE_AND_FHIR.md](docs/REPORT_GOVERNANCE_AND_FHIR.md), and the deliberately separate native-app/multi-instance continuation is in [docs/NATIVE_APP_AND_SCALE_ROADMAP.md](docs/NATIVE_APP_AND_SCALE_ROADMAP.md).
+Operational guidance is in [docs/CONTROLLED_TRIAL_OPERATIONS.md](docs/CONTROLLED_TRIAL_OPERATIONS.md), the threat/data model is in [docs/PRIVACY_SECURITY_MODEL.md](docs/PRIVACY_SECURITY_MODEL.md), report/FHIR rules are in [docs/REPORT_GOVERNANCE_AND_FHIR.md](docs/REPORT_GOVERNANCE_AND_FHIR.md), the final finite acceptance record is in [docs/CONTROLLED_TRIAL_PRODUCT_QA_20260717.md](docs/CONTROLLED_TRIAL_PRODUCT_QA_20260717.md), and the deliberately separate native-app/multi-instance continuation is in [docs/NATIVE_APP_AND_SCALE_ROADMAP.md](docs/NATIVE_APP_AND_SCALE_ROADMAP.md).
 
 The previous experiment-heavy dashboard is retained at `app/legacy_research_dashboard.py` for provenance, but it is no longer the default product surface. See [docs/PRODUCT_BENCHMARK_AND_COMPLETION.md](docs/PRODUCT_BENCHMARK_AND_COMPLETION.md) for the official-source product benchmark and implemented workflow contract.
 
@@ -110,7 +110,7 @@ python scripts/run_assistant_eval.py --mode deterministic --output-dir output/as
 python scripts/run_assistant_eval.py --mode live --max-cases 24 --stride 5 --output-dir output/assistant_eval_live
 ```
 
-The final functional and visual verification record is in [docs/PRODUCT_QA_REPORT.md](docs/PRODUCT_QA_REPORT.md). The finite command-by-command coverage contract is recorded in [docs/PRODUCT_FUNCTION_MATRIX_20260715.md](docs/PRODUCT_FUNCTION_MATRIX_20260715.md).
+The current controlled-trial functional, visual, real-video, AI and multimodal verification record is in [docs/CONTROLLED_TRIAL_PRODUCT_QA_20260717.md](docs/CONTROLLED_TRIAL_PRODUCT_QA_20260717.md). The earlier product-console snapshot remains in [docs/PRODUCT_QA_REPORT.md](docs/PRODUCT_QA_REPORT.md), and the finite command-by-command coverage contract is recorded in [docs/PRODUCT_FUNCTION_MATRIX_20260715.md](docs/PRODUCT_FUNCTION_MATRIX_20260715.md).
 
 The frozen real-video backend/API replay and the real-browser workflow are reproducible with the committed validation harnesses:
 
