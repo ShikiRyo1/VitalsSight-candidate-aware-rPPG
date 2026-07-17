@@ -18,7 +18,7 @@ from src.assistant.provider import OllamaProvider
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Install and verify the local VitalsSight assistant model.")
-    parser.add_argument("--model", default="qwen3:4b")
+    parser.add_argument("--model", default="qwen3.6:35b")
     parser.add_argument("--base-url", default="http://127.0.0.1:11434")
     parser.add_argument("--skip-pull", action="store_true")
     args = parser.parse_args()

@@ -15,7 +15,14 @@ from src.assistant.multimodal import (
     SpeechStatus,
 )
 from src.assistant.orchestrator import AssistantOrchestrator
-from src.assistant.provider import OllamaProvider, ProviderReply, ProviderStatus, ProviderToolCall, UnavailableProvider
+from src.assistant.provider import (
+    OllamaProvider,
+    OllamaVisionProvider,
+    ProviderReply,
+    ProviderStatus,
+    ProviderToolCall,
+    UnavailableProvider,
+)
 from src.assistant.retrieval import KnowledgeIndex
 from src.assistant.schemas import AssistantChatRequest, AssistantLanguage, AssistantRole
 from src.assistant.tools import AssistantTools, ToolExecutionError
@@ -28,11 +35,22 @@ class ScriptedProvider:
     provider_name = "scripted"
     model = "scripted-test-model"
 
-    def __init__(self, answer: str, *, used_ids: list[str] | None = None, tool_call: ProviderToolCall | None = None) -> None:
+    def __init__(
+        self,
+        answer: str,
+        *,
+        used_ids: list[str] | None = None,
+        tool_call: ProviderToolCall | None = None,
+        evidence_explanation: str = "The explanation remains tied to the cited case evidence [E1].",
+        next_step: str = "Verify the recorded state and evidence packet in the linked workspace.",
+    ) -> None:
         self.answer = answer
         self.used_ids = used_ids or ["E1"]
         self.tool_call = tool_call
+        self.evidence_explanation = evidence_explanation
+        self.next_step = next_step
         self.calls: list[list[dict[str, Any]]] = []
+        self.response_schemas: list[dict[str, Any] | None] = []
 
     def status(self) -> ProviderStatus:
         return ProviderStatus(True, self.provider_name, self.model, "ready")
@@ -45,9 +63,19 @@ class ScriptedProvider:
         response_schema: dict[str, Any] | None = None,
     ) -> ProviderReply:
         self.calls.append(messages)
+        self.response_schemas.append(response_schema)
         if tools is not None:
             return ProviderReply(tool_calls=(self.tool_call,) if self.tool_call else ())
-        return ProviderReply(content=json.dumps({"answer": self.answer, "used_evidence_ids": self.used_ids}))
+        return ProviderReply(
+            content=json.dumps(
+                {
+                    "direct_answer": self.answer,
+                    "evidence_explanation": self.evidence_explanation,
+                    "next_step": self.next_step,
+                    "used_evidence_ids": self.used_ids,
+                }
+            )
+        )
 
 
 class ScriptedVisionProvider:
@@ -139,6 +167,27 @@ def test_ollama_status_requires_the_configured_model_tag() -> None:
     assert "not installed" in status.details
 
 
+def test_ollama_uses_validated_high_quality_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (
+        "VITALSSIGHT_ASSISTANT_MODEL",
+        "VITALSSIGHT_ASSISTANT_TIMEOUT",
+        "VITALSSIGHT_ASSISTANT_THINKING",
+        "VITALSSIGHT_ASSISTANT_NUM_CTX",
+        "VITALSSIGHT_ASSISTANT_NUM_PREDICT",
+        "VITALSSIGHT_ASSISTANT_TEMPERATURE",
+        "VITALSSIGHT_ASSISTANT_KEEP_ALIVE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    provider = OllamaProvider()
+    assert provider.model == "qwen3.6:35b"
+    assert provider.timeout_seconds == 300
+    assert provider.thinking_enabled is False
+    assert provider.context_tokens == 8192
+    assert provider.answer_tokens == 768
+    assert provider.reasoning_temperature == 0.6
+    assert provider.keep_alive == "0"
+
+
 def test_ollama_status_accepts_exact_and_latest_aliases() -> None:
     exact = OllamaProvider(model="qwen3:4b")
     exact._request = lambda *args, **kwargs: {"models": [{"name": "qwen3:4b"}]}  # type: ignore[method-assign]
@@ -146,6 +195,83 @@ def test_ollama_status_accepts_exact_and_latest_aliases() -> None:
     latest._request = lambda *args, **kwargs: {"models": [{"name": "private-model:latest"}]}  # type: ignore[method-assign]
     assert exact.status().available is True
     assert latest.status().available is True
+
+
+def test_vision_sidecar_unloads_after_each_analysis_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("VITALSSIGHT_VISION_KEEP_ALIVE", raising=False)
+    provider = OllamaVisionProvider(model="qwen3-vl:4b-instruct")
+    captured: dict[str, Any] = {}
+
+    def fake_request(path: str, payload: dict[str, Any], **_: Any) -> dict[str, Any]:
+        captured.update(payload)
+        return {"message": {"content": "{}"}}
+
+    provider._request = fake_request  # type: ignore[method-assign]
+    provider.analyze(b"image", "describe")
+    assert captured["keep_alive"] == "0"
+
+
+def test_ollama_reserves_thinking_for_schema_constrained_composition(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VITALSSIGHT_ASSISTANT_THINKING", "true")
+    provider = OllamaProvider(model="qwen3.6:35b")
+    payloads: list[dict[str, Any]] = []
+
+    def fake_request(path: str, payload: dict[str, Any], **_: Any) -> dict[str, Any]:
+        payloads.append(payload)
+        return {"message": {"content": "{}", "tool_calls": []}}
+
+    provider._request = fake_request  # type: ignore[method-assign]
+    provider.chat([{"role": "user", "content": "route"}], tools=[{"type": "function", "function": {}}])
+    provider.chat(
+        [{"role": "user", "content": "compose"}],
+        response_schema={"type": "object", "properties": {}},
+    )
+
+    assert payloads[0]["think"] is False
+    assert payloads[0]["options"]["num_predict"] == 384
+    assert payloads[1]["think"] is True
+    assert payloads[1]["options"]["num_predict"] == 768
+    assert payloads[1]["options"]["temperature"] == 0.6
+    assert payloads[1]["options"]["top_k"] == 20
+
+
+def test_ollama_thinking_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VITALSSIGHT_ASSISTANT_THINKING", "false")
+    provider = OllamaProvider(model="qwen3.6:35b")
+    captured: dict[str, Any] = {}
+
+    def fake_request(path: str, payload: dict[str, Any], **_: Any) -> dict[str, Any]:
+        captured.update(payload)
+        return {"message": {"content": "{}"}}
+
+    provider._request = fake_request  # type: ignore[method-assign]
+    provider.chat([{"role": "user", "content": "compose"}], response_schema={"type": "object"})
+    assert captured["think"] is False
+    assert captured["options"]["num_predict"] == 768
+
+
+def test_ollama_retries_empty_thinking_answer_without_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VITALSSIGHT_ASSISTANT_THINKING", "true")
+    provider = OllamaProvider(model="qwen3.6:35b")
+    payloads: list[dict[str, Any]] = []
+
+    def fake_request(path: str, payload: dict[str, Any], **_: Any) -> dict[str, Any]:
+        payloads.append(payload)
+        if len(payloads) == 1:
+            return {"message": {"thinking": "long reasoning", "content": ""}}
+        return {
+            "message": {
+                "content": (
+                    '{"direct_answer":"grounded","evidence_explanation":"evidence",'
+                    '"next_step":"verify","used_evidence_ids":[]}'
+                )
+            }
+        }
+
+    provider._request = fake_request  # type: ignore[method-assign]
+    reply = provider.chat([{"role": "user", "content": "compose"}], response_schema={"type": "object"})
+    assert reply.content.startswith('{"direct_answer"')
+    assert [payload["think"] for payload in payloads] == [True, False]
 
 
 def test_deterministic_fallback_covers_all_three_output_states(tmp_path: Path) -> None:
@@ -257,6 +383,30 @@ def test_grounded_model_answer_passes_post_validation(tmp_path: Path) -> None:
     assert result.provider == "scripted"
     assert result.model == "scripted-test-model"
     assert result.validation.fallback_reason is None
+    schema = provider.response_schemas[-1]
+    assert schema is not None
+    assert schema["required"] == [
+        "direct_answer",
+        "evidence_explanation",
+        "next_step",
+        "used_evidence_ids",
+    ]
+    assert "Verify the recorded state" in result.answer
+
+
+def test_selected_case_with_incomplete_model_sections_falls_back(tmp_path: Path) -> None:
+    provider = ScriptedProvider(
+        "The recorded state is review and HR remains withheld [E1].",
+        evidence_explanation="",
+        next_step="",
+    )
+    engine = AssistantOrchestrator(seeded_store(tmp_path / "assistant.db"), provider=provider)
+    result = engine.chat(request("demo_motion_conflict", "Explain the decision."))
+    assert result.provider == "deterministic_fallback"
+    assert result.degraded is True
+    assert result.validation.fallback_reason == (
+        "Selected-case answer omitted the evidence explanation or verification step"
+    )
 
 
 def test_grounded_fps_in_versioned_knowledge_passes_post_validation(tmp_path: Path) -> None:

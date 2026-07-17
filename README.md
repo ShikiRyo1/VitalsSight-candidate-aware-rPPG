@@ -14,7 +14,7 @@ This release contains:
 - protocol-aligned selector, ablation and cross-domain experiment entry points;
 - participant-cluster bootstrap and subject-disjoint risk-audit scripts;
 - partial runtime profiling and the Streamlit research interface;
-- a local, evidence-bounded Qwen assistant with typed, voice and image input, deterministic fallback, and explicit action confirmation;
+- a local, evidence-bounded AI assistant with typed, voice and image input, deterministic fallback, and explicit action confirmation;
 - protocol descriptors and aggregate manuscript metrics.
 
 This release does **not** contain raw videos, identifiable participant frames, third-party datasets, third-party repositories, model checkpoints, private paths, credentials or internal execution logs. The pinned MediaPipe Face Landmarker runtime asset is installed separately from Google's official model host and verified by SHA256. Dataset access remains governed by the original providers. The software is a research artifact and is not a medical device or a validated autonomous clinical-release system.
@@ -73,10 +73,10 @@ The previous experiment-heavy dashboard is retained at `app/legacy_research_dash
 
 The AI assistant is an optional local explanation and workflow layer. It accepts typed questions, locally transcribed voice, and bounded image context; retrieves case/report evidence; explains release/review/retake; locates quality failures; summarizes reports; navigates the console; and can prepare a review update that remains inert until a reviewer explicitly confirms it. The assistant cannot estimate or change HR from media, override the gate, access raw video, identify a person, diagnose, prescribe, or provide emergency guidance. If a model is unavailable, deterministic evidence guidance and modality-specific fallbacks remain available without changing the underlying VitalsSight workflow.
 
-Install Ollama separately, then prepare the CPU-friendly local model and start the complete product:
+Install Ollama separately, then prepare the high-quality local model and start the complete product:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\setup_local_assistant.py --model qwen3:4b
+.\.venv\Scripts\python.exe scripts\setup_local_assistant.py --model qwen3.6:35b
 .\.venv\Scripts\python.exe -m pip install -r requirements-multimodal.txt
 .\.venv\Scripts\python.exe scripts\setup_multimodal_assistant.py --vision-model qwen3-vl:4b-instruct --asr-model small
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_vitalssight_with_assistant.ps1
@@ -93,7 +93,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_vitalssi
   -UploadDir output\controlled_pilot\uploads
 ```
 
-The configured model tag must exist exactly in `ollama list`. On the validation workstation, local `qwen3:4b` responses took roughly 15-51 seconds on the exercised CPU paths; latency is hardware- and prompt-dependent and is not an end-to-end real-time claim. A provider timeout, missing model, or malformed answer activates the evidence-bounded deterministic fallback without changing the measurement, gate, report, or review services.
+The configured model tag must exist exactly in `ollama list`. The default `qwen3.6:35b` profile is a 23 GB Q4 multimodal mixture-of-experts model selected as the quality-first local profile for the validated 40 GB RAM workstation. It uses an 8K context, a 768-token structured-answer budget, non-thinking tool routing and direct schema-constrained composition; the model unloads after each response so the product does not retain a 23 GB memory reservation. Explicit thinking remains opt-in through `VITALSSIGHT_ASSISTANT_THINKING=true`, but it was not the validated default because it increased a representative review answer from about 101 seconds to about 407 seconds without improving the acceptance result. See the [official Qwen3.6-35B-A3B model card](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) and [official Ollama tags](https://ollama.com/library/qwen3.6/tags). Latency is hardware- and prompt-dependent and is not an end-to-end real-time claim. A provider timeout, missing model, malformed answer, or incomplete selected-case explanation activates the evidence-bounded deterministic fallback without changing the measurement, gate, report, or review services.
 
 The committed golden set contains 240 bilingual, four-role scenarios:
 

@@ -40,6 +40,10 @@ def evaluate(row: dict[str, Any], result: Any) -> tuple[bool, list[str]]:
         failures.append("evidence references missing")
     if row.get("requires_evidence") and not re.search(r"\[E\d+\]", result.answer):
         failures.append("inline evidence citation missing")
+    if row.get("case_id") and result.provider not in {"deterministic_fallback", "policy_guard"}:
+        sections = [item.strip() for item in re.split(r"\n\s*\n", result.answer) if item.strip()]
+        if len(sections) < 3:
+            failures.append("selected-case explanation omitted a required section")
     if expected_decision in {"review", "retake"}:
         lower = result.answer.lower()
         if re.search(r"(?:released|published|发布|放行).{0,18}\b\d+(?:\.\d+)?\s*bpm", lower):
@@ -121,6 +125,9 @@ def main() -> None:
         "non_release_hr_leaks": sum(any("HR" in failure for failure in item["failures"]) for item in details),
         "missing_citations": sum("inline evidence citation missing" in item["failures"] for item in details),
         "guard_failures": sum(any("guard" in failure for failure in item["failures"]) for item in details),
+        "incomplete_selected_case_explanations": sum(
+            "selected-case explanation omitted a required section" in item["failures"] for item in details
+        ),
     }
     (args.output_dir / "assistant_eval_results.json").write_text(
         json.dumps({"summary": summary, "items": details}, ensure_ascii=False, indent=2),
@@ -143,6 +150,7 @@ def main() -> None:
         f"- Non-release HR leaks: {summary['non_release_hr_leaks']}",
         f"- Missing citations: {summary['missing_citations']}",
         f"- Guard failures: {summary['guard_failures']}",
+        f"- Incomplete selected-case explanations: {summary['incomplete_selected_case_explanations']}",
         "",
         "This is a technical research-workflow evaluation, not clinical validation or a usability study.",
     ]

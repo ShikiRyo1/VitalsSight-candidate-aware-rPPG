@@ -185,5 +185,15 @@ class AssistantConfirmResponse(BaseModel):
 
 
 class ProviderDraft(BaseModel):
-    answer: str = Field(min_length=1, max_length=5000)
+    direct_answer: str = Field(min_length=1, max_length=1800)
+    evidence_explanation: str = Field(default="", max_length=2400)
+    next_step: str = Field(default="", max_length=1400)
     used_evidence_ids: list[str] = Field(default_factory=list, max_length=20)
+
+    @property
+    def answer(self) -> str:
+        return "\n\n".join(
+            section.strip()
+            for section in (self.direct_answer, self.evidence_explanation, self.next_step)
+            if section.strip()
+        )

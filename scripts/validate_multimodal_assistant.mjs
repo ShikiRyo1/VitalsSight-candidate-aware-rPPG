@@ -17,6 +17,8 @@ if (!baseUrl || !apiUrl || !imagePath || !outputRoot) {
     "Usage: validate_multimodal_assistant.mjs BASE_URL API_URL IMAGE OUTPUT_ROOT [AUDIO]",
   );
 }
+const expectedAssistantModel = process.env.VITALSSIGHT_EXPECTED_ASSISTANT_MODEL || "qwen3.6:35b";
+const escapedAssistantModel = expectedAssistantModel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const runRoot = path.resolve(outputRoot);
 await fs.mkdir(runRoot, { recursive: true });
@@ -286,8 +288,10 @@ try {
   await userMessage.waitFor({ state: "visible", timeout: 180000 });
   await userMessage.getByText("Transient context: image context", { exact: true }).waitFor({ state: "visible", timeout: 30000 });
   const assistantMessage = page.getByLabel("Chat message from assistant").last();
-  await assistantMessage.waitFor({ state: "visible", timeout: 180000 });
-  await assistantMessage.getByText(/Local model.*ollama.*qwen3:4b/i).waitFor({ state: "visible", timeout: 180000 });
+  await assistantMessage.waitFor({ state: "visible", timeout: 360000 });
+  await assistantMessage
+    .getByText(new RegExp(`Local model.*ollama.*${escapedAssistantModel}`, "i"))
+    .waitFor({ state: "visible", timeout: 300000 });
   const answer = await assistantMessage.innerText();
   check("image context reaches the conversational assistant", /image|screen|workflow/i.test(answer), answer);
   check("assistant does not invent a vital-sign value", !/\b\d{2,3}(?:\.\d+)?\s*BPM\b/i.test(answer), answer);

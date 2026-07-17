@@ -29,7 +29,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_vitalssi
 
 复核动作确认试用在同一命令末尾增加 `-EnableReviewActions`。该参数只允许生成待确认动作，任何写入仍必须由复核人员进行第二次明确确认。
 
-打开 `http://127.0.0.1:8502`，在左侧进入“AI 助手”。API 文档位于 `http://127.0.0.1:8011/docs`。确认顶部显示 Qwen 已就绪；如果显示“证据降级模式”，仍可继续执行离线组测试，但应记录模型状态。
+打开 `http://127.0.0.1:8502`，在左侧进入“AI 助手”。API 文档位于 `http://127.0.0.1:8011/docs`。确认顶部显示“本地 AI 助手已就绪”；如果显示“证据降级模式”，仍可继续执行离线组测试，但应记录模型状态。
 
 每轮开始前执行：
 
@@ -38,7 +38,7 @@ Invoke-RestMethod http://127.0.0.1:8011/api/v1/assistant/health
 Invoke-RestMethod http://127.0.0.1:8011/api/v1/assistant/multimodal/health
 ```
 
-记录 `status`、`model`、`model_available`、`fallback_available` 和时间。当前本地验证机上已观察到 `qwen3:4b` 的部分 CPU 回答约需 15-51 秒；这不是实时性能承诺。等待期间不得重复提交同一问题。
+记录 `status`、`model`、`model_available`、`fallback_available`、`details` 和时间。默认 `qwen3.6:35b` 为 CPU 上的质量优先、延迟容忍配置；经验证的直接结构化回答约为 67–141 秒，不能视为实时性能承诺。显式深度思考为可选配置，在代表性 review 场景中约需 407 秒，因此不作为本机默认值。界面显示处理中时，不得重复提交同一问题。
 
 ## 必测状态和期望输出
 

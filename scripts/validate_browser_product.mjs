@@ -19,6 +19,8 @@ const [baseUrl, apiUrl, fixtureRoot, outputRoot, commit] = process.argv.slice(2)
 if (!baseUrl || !apiUrl || !fixtureRoot || !outputRoot || !commit) {
   throw new Error("Usage: validate_browser_product.mjs BASE_URL API_URL FIXTURE_ROOT OUTPUT_ROOT COMMIT");
 }
+const expectedAssistantModel = process.env.VITALSSIGHT_EXPECTED_ASSISTANT_MODEL || "qwen3.6:35b";
+const escapedAssistantModel = expectedAssistantModel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const execFileAsync = promisify(execFile);
 const actualCommit = (await execFileAsync("git", ["rev-parse", "HEAD"])).stdout.trim();
@@ -263,7 +265,7 @@ async function runDemoAssessment(page, sourceName, expected) {
 async function validateAssistantWorkspace(page) {
   await gotoWorkspace(page, "AI assistant");
   let text = await bodyText(page);
-  check("assistant workspace exposes local-model status", text.includes("Qwen assistant ready"), text.slice(0, 1800));
+  check("assistant workspace exposes local-model status", text.includes("Local AI assistant ready"), text.slice(0, 1800));
   check(
     "assistant workspace states the evidence authority boundary",
     text.includes("The assistant explains and navigates; it cannot override the gate."),
@@ -276,14 +278,18 @@ async function validateAssistantWorkspace(page) {
   );
   await page.getByRole("button", { name: /Explain this state/ }).click();
   const assistantMessage = page.getByLabel("Chat message from assistant").last();
-  await assistantMessage.waitFor({ state: "visible", timeout: 180000 });
-  await assistantMessage.getByText(/HR remains withheld/i).first().waitFor({ state: "visible", timeout: 180000 });
+  await assistantMessage.waitFor({ state: "visible", timeout: 360000 });
+  await assistantMessage.getByText(/HR remains withheld/i).first().waitFor({ state: "visible", timeout: 360000 });
   text = await assistantMessage.innerText();
   check("assistant preserves the recorded review state", /review/i.test(text), text);
   check("assistant withholds HR for review", /HR remains withheld/i.test(text), text);
   check("assistant answer cites supplied evidence", /\[E\d+\]/.test(text), text);
   check("assistant includes no BPM value in a review answer", !/-?\d+(?:\.\d+)?\s*BPM/i.test(text), text);
-  check("assistant identifies its local provider", /ollama\s*·\s*qwen3:4b/i.test(text), text);
+  check(
+    "assistant identifies its local provider",
+    new RegExp(`ollama\\s*·\\s*${escapedAssistantModel}`, "i").test(text),
+    text,
+  );
 
   await assistantMessage.getByText(/Evidence cited \(\d+\)/).click();
   check("assistant evidence disclosure is interactive", await assistantMessage.locator("[data-testid='stDataFrame']").count() > 0);
@@ -689,7 +695,7 @@ try {
   check("mobile assessment exposes all four workflow stages", ["Consent", "Capture", "Quality", "Result or review"].every((item) => mobileText.includes(item)));
   await saveState(mobilePage, "12_mobile_new_assessment");
   await gotoWorkspace(mobilePage, "AI assistant");
-  check("mobile assistant preserves the model and evidence boundary", (await bodyText(mobilePage)).includes("Qwen assistant ready"));
+  check("mobile assistant preserves the model and evidence boundary", (await bodyText(mobilePage)).includes("Local AI assistant ready"));
   check("mobile assistant viewport has no horizontal overflow", await mobilePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2));
   await saveState(mobilePage, "13_mobile_ai_assistant");
 

@@ -1,5 +1,5 @@
 param(
-    [string]$Model = "qwen3:4b",
+    [string]$Model = "qwen3.6:35b",
     [string]$VisionModel = "qwen3-vl:4b-instruct",
     [string]$AsrModel = "small",
     [int]$UiPort = 8501,

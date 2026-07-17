@@ -1286,11 +1286,13 @@ def _assistant(store: ConsoleStore) -> None:
     health = engine.health()
     ready = health.model_available
     status_class = "ready" if ready else "degraded"
-    status_title = _ui("Qwen assistant ready", "Qwen 助手已就绪") if ready else _ui("Evidence fallback active", "证据降级模式已启用")
+    deep_reasoning = "deep reasoning enabled" in health.details.lower()
+    reasoning_status = _ui("deep reasoning", "深度思考") if deep_reasoning else _ui("direct answers", "直接回答")
+    status_title = _ui("Local AI assistant ready", "本地 AI 助手已就绪") if ready else _ui("Evidence fallback active", "证据降级模式已启用")
     status_detail = (
         _ui(
-            f"{health.provider} · {health.model} · local knowledge {health.knowledge_chunks} chunks",
-            f"{health.provider} · {health.model} · 本地知识 {health.knowledge_chunks} 个片段",
+            f"{health.provider} · {health.model} · {reasoning_status} · local knowledge {health.knowledge_chunks} chunks",
+            f"{health.provider} · {health.model} · {reasoning_status} · 本地知识 {health.knowledge_chunks} 个片段",
         )
         if ready
         else _ui(
@@ -1517,7 +1519,15 @@ def _assistant(store: ConsoleStore) -> None:
             allow_action_proposals=bool(allow_actions),
             media_contexts=media_contexts,
         )
-        with st.spinner(_ui("Checking evidence and composing a bounded answer...", "正在核对证据并生成受约束回答……")):
+        spinner_text = (
+            _ui(
+                "Checking evidence and reasoning over a bounded answer. This quality profile may take longer...",
+                "正在核对证据并深度推理受约束回答；高质量模式可能需要更长时间……",
+            )
+            if deep_reasoning
+            else _ui("Checking evidence and composing a bounded answer...", "正在核对证据并生成受约束回答……")
+        )
+        with st.spinner(spinner_text):
             response = engine.chat(request)
         st.session_state["vs_assistant_conversation_id"] = response.conversation_id
         history.append({"role": "assistant", "content": response.answer, "response": response.model_dump(mode="json")})

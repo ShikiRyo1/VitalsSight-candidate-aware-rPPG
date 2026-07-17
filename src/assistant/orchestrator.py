@@ -458,10 +458,16 @@ class AssistantOrchestrator:
             "For review or retake, explicitly say that HR is withheld and never present a candidate as a published result. "
             "When no case is selected, do not claim that HR was released or withheld and do not infer an output state. "
             "Do not diagnose, prescribe, or imply calibrated safety. Cite factual sentences with [E1], [E2], and so on. "
-            "Return only JSON matching the schema. Keep the answer concise and operational."
+            "Answer the user's exact question first instead of repeating a generic workflow summary. Then explain the "
+            "relevant evidence and mechanism, followed by the concrete next action and how the user can verify it. "
+            "When a case is selected, always include all three elements: direct conclusion, recorded evidence with the "
+            "causal workflow explanation, and a concrete action or verification step. For general or navigation questions, "
+            "include only the parts needed to answer the request. Keep the three sections distinct and do not copy the "
+            "minimum safe fallback verbatim. "
+            "Reply in the requested language. Return only JSON matching the schema."
         )
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
-        for turn in request.history[-4:]:
+        for turn in request.history[-6:]:
             if not inspect_input(turn.content).allowed:
                 continue
             messages.append({"role": turn.role, "content": turn.content[:2000]})
@@ -473,7 +479,7 @@ class AssistantOrchestrator:
                     "content": (
                         f"Language: {request.language.value}. Role: {request.role.value}.\n"
                         f"Evidence references: {compact_json(evidence, limit=6200)}\n"
-                        f"Safe fallback phrasing: {fallback_answer}"
+                        f"Minimum safety boundary to preserve, not a complete answer: {fallback_answer}"
                     ),
                 },
             ]
@@ -481,14 +487,28 @@ class AssistantOrchestrator:
         ollama_schema = {
             "type": "object",
             "properties": {
-                "answer": {"type": "string"},
+                "direct_answer": {
+                    "type": "string",
+                    "description": "Answer the user's exact question in one or two sentences.",
+                },
+                "evidence_explanation": {
+                    "type": "string",
+                    "description": "Explain the recorded evidence and causal workflow mechanism with inline evidence citations.",
+                },
+                "next_step": {
+                    "type": "string",
+                    "description": "Give the concrete next action and say how the user can verify completion.",
+                },
                 "used_evidence_ids": {"type": "array", "items": {"type": "string"}},
             },
-            "required": ["answer", "used_evidence_ids"],
+            "required": ["direct_answer", "evidence_explanation", "next_step", "used_evidence_ids"],
             "additionalProperties": False,
         }
         reply = self.provider.chat(messages, response_schema=ollama_schema)
-        return ProviderDraft.model_validate_json(reply.content)
+        draft = ProviderDraft.model_validate_json(reply.content)
+        if request.case_id and (not draft.evidence_explanation.strip() or not draft.next_step.strip()):
+            raise RuntimeError("Selected-case answer omitted the evidence explanation or verification step")
+        return draft
 
     def _evidence_refs(self, traces: list[dict[str, Any]]) -> list[EvidenceReference]:
         refs: list[EvidenceReference] = []
