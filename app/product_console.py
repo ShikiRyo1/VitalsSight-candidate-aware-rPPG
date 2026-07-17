@@ -1075,6 +1075,17 @@ def _set_media_context(raw_context: dict[str, Any]) -> None:
     st.session_state["vs_assistant_media_contexts"] = [*existing, context.model_dump(mode="json")][-2:]
 
 
+def _discard_voice_intake() -> None:
+    st.session_state["vs_assistant_voice_result"] = None
+    st.session_state["vs_assistant_voice_transcript"] = ""
+    st.session_state["vs_assistant_audio_widget_version"] += 1
+
+
+def _discard_image_intake() -> None:
+    st.session_state["vs_assistant_image_result"] = None
+    st.session_state["vs_assistant_image_widget_version"] += 1
+
+
 def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
     health = multimodal.health()
     image_state = _ui("Image ready", "图片就绪") if health.image.available else _ui("Technical fallback", "图片技术降级")
@@ -1126,7 +1137,6 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
                             )
                         st.session_state["vs_assistant_voice_result"] = result.model_dump(mode="json")
                         st.session_state["vs_assistant_voice_transcript"] = result.transcript
-                        st.rerun()
                     except MediaProcessingError as error:
                         st.error(str(error))
 
@@ -1161,15 +1171,13 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
                     context["summary"] = transcript.strip()
                     _set_media_context(context)
                     st.session_state["vs_assistant_pending_prompt"] = transcript.strip()
-                    st.rerun()
-                if clear_voice.button(
+                clear_voice.button(
                     _ui("Discard transcript", "丢弃转写"),
                     icon=":material/close:",
                     width="stretch",
                     key="vs_assistant_clear_voice",
-                ):
-                    st.session_state["vs_assistant_voice_result"] = None
-                    st.rerun()
+                    on_click=_discard_voice_intake,
+                )
 
         with image_tab:
             image_file = st.file_uploader(
@@ -1207,7 +1215,6 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
                                 language=AssistantLanguage.zh if _is_zh() else AssistantLanguage.en,
                             )
                         st.session_state["vs_assistant_image_result"] = result.model_dump(mode="json")
-                        st.rerun()
                     except MediaProcessingError as error:
                         st.error(str(error))
 
@@ -1239,7 +1246,6 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
                 ):
                     _set_media_context(image_result["context"])
                     _set_flash(_ui("Image context attached. Type a question below.", "图片上下文已附加，请在下方输入问题。"), "info")
-                    st.rerun()
                 if ask_col.button(
                     _ui("Ask with this image", "结合图片提问"),
                     icon=":material/send:",
@@ -1252,16 +1258,13 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
                         "Explain how this image relates to the VitalsSight workflow and what the user should do next.",
                         "解释这张图片与 VitalsSight 工作流的关系，以及用户下一步应该做什么。",
                     )
-                    st.rerun()
-                if clear_col.button(
+                clear_col.button(
                     _ui("Clear", "清除"),
                     icon=":material/close:",
                     width="stretch",
                     key="vs_assistant_clear_image",
-                ):
-                    st.session_state["vs_assistant_image_result"] = None
-                    st.session_state["vs_assistant_image_widget_version"] += 1
-                    st.rerun()
+                    on_click=_discard_image_intake,
+                )
 
     attached = st.session_state.get("vs_assistant_media_contexts", [])
     if attached:
