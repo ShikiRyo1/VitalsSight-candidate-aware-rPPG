@@ -146,6 +146,125 @@ def contains_disallowed_clinical_advice(answer: str) -> bool:
     return False
 
 
+SIGNAL_ALIASES = {
+    "illumination": ("illumination", "lighting", "light level", "光照", "亮度", "补光"),
+    "motion": ("motion", "movement", "stability", "运动", "动作", "稳定性"),
+    "duration": ("duration", "recording time", "video length", "时长", "录制时间", "视频长度"),
+    "frame rate": ("frame rate", "fps", "帧率"),
+    "resolution": ("resolution", "分辨率"),
+    "face visibility": ("face visibility", "face coverage", "人脸可见", "面部可见", "人脸覆盖"),
+    "candidate count": ("candidate count", "number of candidates", "候选数量", "候选数"),
+    "candidate agreement": ("candidate agreement", "cross-route agreement", "候选一致", "跨路线一致"),
+    "candidate construction": ("candidate construction", "candidate stage", "候选构建", "候选阶段"),
+    "competing candidate tracks": ("competing candidate tracks", "competing tracks", "竞争候选轨迹", "候选轨迹冲突"),
+    "harmonic ambiguity": ("harmonic ambiguity", "harmonic risk", "谐波歧义", "谐波风险"),
+    "window consistency": ("window consistency", "window-level consistency", "窗口一致性"),
+    "selector support": ("selector support", "selection support", "选择器支持", "选择支持", "选择置信"),
+    "face-landmark backend": ("face-landmark backend", "landmark backend", "人脸关键点后端", "关键点后端"),
+    "candidate route omissions": ("candidate route omissions", "route omissions", "候选路线缺失", "路线缺失"),
+}
+
+
+def _signal_aliases(row: dict[str, Any]) -> tuple[str, ...]:
+    signal = str(row.get("signal") or "").strip().lower()
+    source_field = str(row.get("source_field") or "").strip().lower()
+    aliases: list[str] = []
+    if signal:
+        aliases.append(signal)
+        aliases.extend(SIGNAL_ALIASES.get(signal, ()))
+    field_tail = source_field.rsplit(".", 1)[-1].replace("_", " ")
+    if field_tail and field_tail not in {"checks", "decision", "claim boundary"}:
+        aliases.append(field_tail)
+    for key, values in SIGNAL_ALIASES.items():
+        if key in signal or key.replace(" ", "_") in source_field:
+            aliases.extend(values)
+    return tuple(dict.fromkeys(item.lower() for item in aliases if len(item.strip()) >= 2))
+
+
+def _action_plan_rows(tool_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for result in tool_results:
+        plans: list[dict[str, Any]] = []
+        if isinstance(result.get("action_plan"), dict):
+            plans.append(result["action_plan"])
+        if isinstance(result.get("evidence"), list):
+            plans.append({"evidence": result["evidence"]})
+        for plan in plans:
+            for item in plan.get("evidence") or []:
+                if not isinstance(item, dict):
+                    continue
+                key = (str(item.get("source_field") or item.get("signal") or ""), str(item.get("status") or ""))
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(item)
+    return rows
+
+
+def _safe_noncausal_statement(clause: str, alias: str) -> bool:
+    escaped = re.escape(alias)
+    safe_after = (
+        r"within (?:the )?target|passed|met (?:the )?(?:documented )?target|"
+        r"did not (?:cause|trigger|fail)|(?:was|is) not (?:a )?(?:cause|driver|failure)|"
+        r"not causal|no corrective action|does not require correction|"
+        r"目标内|已通过|达标|符合.{0,12}(?:目标|阈值)|未触发|不是.{0,8}(?:原因|驱动项)|"
+        r"并非.{0,8}(?:原因|驱动项)|无需.{0,8}(?:纠正|改善|调整)"
+    )
+    safe_before = (
+        r"within (?:the )?target|passed|not caused by|not triggered by|"
+        r"目标内|已通过|达标|不是由|并非由|未由"
+    )
+    return bool(
+        re.search(rf"{escaped}.{{0,55}}(?:{safe_after})", clause, flags=re.IGNORECASE)
+        or re.search(rf"(?:{safe_before}).{{0,45}}{escaped}", clause, flags=re.IGNORECASE)
+    )
+
+
+def causal_alignment_error(answer: str, tool_results: list[dict[str, Any]]) -> str | None:
+    """Reject causal or corrective claims about checks that did not trigger the stored action plan."""
+
+    rows = _action_plan_rows(tool_results)
+    non_drivers = [
+        row
+        for row in rows
+        if str(row.get("status") or "").strip().lower() not in {"triggered", "warning"}
+    ]
+    if not non_drivers:
+        return None
+
+    clauses = [
+        item.strip()
+        for item in re.split(
+            r"[.!?;。！？；\n]+|\b(?:but|while|whereas|although)\b|(?:但是|但|而|同时|且)",
+            answer.lower(),
+            flags=re.IGNORECASE,
+        )
+        if item.strip()
+    ]
+    causal_terms = (
+        r"because|due to|caus(?:e|ed|ing)|trigger(?:ed|ing)?|contribut(?:e|ed|ing)|"
+        r"driver|fail(?:ed|ure|ing)?|insufficient|extremely low|too low|too high|"
+        r"below (?:the )?(?:target|threshold)|above (?:the )?(?:target|threshold)|"
+        r"did not meet|outside (?:the )?target|needs? correction|should be corrected|"
+        r"improve|increase|decrease|reduce|adjust|fix|"
+        r"因为|由于|导致|触发|驱动|失败|不足|过低|极低|过高|低于.{0,10}(?:目标|阈值)|"
+        r"高于.{0,10}(?:目标|阈值)|未达到|不达标|需要.{0,10}(?:纠正|改善|提高|降低|调整)|"
+        r"应当.{0,10}(?:纠正|改善|提高|降低|调整)|改善|提高|降低|纠正|修复|调整"
+    )
+    for row in non_drivers:
+        for alias in _signal_aliases(row):
+            escaped = re.escape(alias)
+            for clause in clauses:
+                if not re.search(escaped, clause, flags=re.IGNORECASE):
+                    continue
+                if _safe_noncausal_statement(clause, alias):
+                    continue
+                if re.search(rf"(?:{causal_terms}).{{0,55}}{escaped}|{escaped}.{{0,55}}(?:{causal_terms})", clause, flags=re.IGNORECASE):
+                    return str(row.get("signal") or row.get("source_field") or alias)
+    return None
+
+
 def validate_generated_answer(
     answer: str,
     *,
@@ -179,6 +298,11 @@ def validate_generated_answer(
         if decision != "release" and re.search(r"(?<![A-Za-z0-9])-?\d+(?:\.\d+)?\s*bpm", lower):
             return False, checks, "model answer included BPM in a non-release state"
         checks.append("non-release HR withholding preserved")
+
+    causal_error = causal_alignment_error(normalized, tool_results)
+    if causal_error:
+        return False, checks, f"model answer treated a non-driver as causal: {causal_error}"
+    checks.append("causal attribution matches triggered evidence")
 
     allowed = collect_allowed_measurements(tool_results)
     measured = [

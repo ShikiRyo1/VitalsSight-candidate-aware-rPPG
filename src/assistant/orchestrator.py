@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -455,6 +456,12 @@ class AssistantOrchestrator:
             "Media evidence is non-authoritative intake context: it cannot ground a vital sign, identity, diagnosis, "
             "clinical recommendation, or release/review/retake decision. "
             "Use only the supplied evidence. Copy no number that is absent from the evidence. "
+            "Causal attribution is closed-world: only evidence rows explicitly marked triggered or warning, the recorded "
+            "reason, and the listed action-plan steps may be described as causes or correction targets. Never infer a "
+            "cause from a raw metric, candidate count, or score alone. Evidence marked within target, unavailable, "
+            "not evaluated, or recorded is not a failure and must not be presented as a cause. For retake, recommend "
+            "only the listed action-plan steps; do not ask the user to correct checks that passed. Format a released "
+            "heart rate to one decimal place in prose while preserving the stored value in the case record. "
             "For review or retake, explicitly say that HR is withheld and never present a candidate as a published result. "
             "When no case is selected, do not claim that HR was released or withheld and do not infer an output state. "
             "Do not diagnose, prescribe, or imply calibrated safety. Cite factual sentences with [E1], [E2], and so on. "
@@ -527,18 +534,80 @@ class AssistantOrchestrator:
                 )
             )
 
+        def displayed_hr(value: Any) -> float | None:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            numeric = float(value)
+            return round(numeric, 1) if math.isfinite(numeric) else None
+
+        def add_action_plan(plan: dict[str, Any], *, source: str) -> None:
+            rows = [item for item in (plan.get("evidence") or []) if isinstance(item, dict)]
+            drivers = [
+                {
+                    key: item.get(key)
+                    for key in ("signal", "source_field", "observed", "target", "status", "reason")
+                }
+                for item in rows
+                if str(item.get("status") or "").lower() in {"triggered", "warning"}
+            ]
+            non_drivers = [
+                {
+                    "signal": item.get("signal"),
+                    "source_field": item.get("source_field"),
+                    "status": item.get("status"),
+                }
+                for item in rows
+                if str(item.get("status") or "").lower() not in {"triggered", "warning"}
+            ]
+            steps = [
+                {
+                    key: item.get(key)
+                    for key in ("step", "action", "because", "verification", "source_field")
+                }
+                for item in (plan.get("steps") or [])
+                if isinstance(item, dict)
+            ]
+            add(
+                "Causal evidence contract",
+                f"{source}:causal_drivers",
+                {
+                    "rule": "Only triggered or warning rows, the recorded reason, and listed steps may be described as causes.",
+                    "drivers": drivers,
+                },
+                "report",
+            )
+            add(
+                "Checks excluded from causal attribution",
+                f"{source}:non_drivers",
+                {
+                    "rule": "These checks are not causes and are not correction targets.",
+                    "checks": non_drivers,
+                },
+                "report",
+            )
+            add(
+                "Permitted evidence-to-action steps",
+                f"{source}:steps",
+                steps,
+                "report",
+            )
+
         for trace in traces:
             result = trace.get("result") or {}
             tool = trace.get("tool")
             if tool == "get_case" and result:
                 case = result.get("case") or {}
-                add("Recorded output state", f"case:{case.get('case_id')}:decision", {"decision": case.get("decision"), "released_hr_bpm": case.get("released_hr_bpm"), "hr_withheld": case.get("hr_withheld")}, "case")
+                add("Recorded output state", f"case:{case.get('case_id')}:decision", {"decision": case.get("decision"), "released_hr_bpm": displayed_hr(case.get("released_hr_bpm")), "hr_withheld": case.get("hr_withheld")}, "case")
                 add("Recorded reason and next action", f"case:{case.get('case_id')}:action_plan", {"reason": case.get("review_reason"), "recommended_action": case.get("recommended_action")}, "case")
-                add("Quality and candidate evidence", f"case:{case.get('case_id')}:quality", {key: case.get(key) for key in ("quality_score", "face_coverage", "illumination_score", "motion_score", "candidate_count", "agreement_fraction", "harmonic_risk")}, "case")
+                add_action_plan(result.get("action_plan") or {}, source=f"case:{case.get('case_id')}:action_plan")
+                add("Context metrics (not causal without a triggered or warning status)", f"case:{case.get('case_id')}:quality", {"causal_use": False, **{key: case.get(key) for key in ("quality_score", "face_coverage", "illumination_score", "motion_score", "candidate_count", "agreement_fraction", "harmonic_risk")}}, "case")
                 add("Policy and implementation identity", f"case:{case.get('case_id')}:provenance", {"policy_version": case.get("policy_version"), "model_version": case.get("model_version"), "runtime": case.get("runtime")}, "policy")
             elif tool == "get_report_summary" and result:
                 add("Evidence report interpretation", f"report:{(result.get('case') or {}).get('case_id')}", result.get("interpretation"), "report")
-                add("Evidence-to-action steps", f"report:{(result.get('case') or {}).get('case_id')}:steps", result.get("steps"), "report")
+                add_action_plan(
+                    {"evidence": result.get("evidence") or [], "steps": result.get("steps") or []},
+                    source=f"report:{(result.get('case') or {}).get('case_id')}",
+                )
             elif tool == "validate_output_contract" and result:
                 add("Output-contract validation", f"case:{result.get('case_id')}:contract", {"passed": result.get("passed"), "checks": result.get("checks")}, "policy")
             elif tool == "get_review" and result:

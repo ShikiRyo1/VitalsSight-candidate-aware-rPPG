@@ -140,6 +140,16 @@ def seeded_store(path: Path) -> ConsoleStore:
     return store
 
 
+def store_with_case(path: Path, case: dict[str, Any]) -> ConsoleStore:
+    store = ConsoleStore(path)
+    store.upsert_case(case, actor="test-seed")
+    return store
+
+
+def stable_case() -> dict[str, Any]:
+    return dict(next(item for item in make_demo_cases() if item["case_id"] == "demo_stable_consensus"))
+
+
 def request(case_id: str | None, message: str, *, language: AssistantLanguage = AssistantLanguage.en) -> AssistantChatRequest:
     return AssistantChatRequest(
         message=message,
@@ -392,6 +402,104 @@ def test_grounded_model_answer_passes_post_validation(tmp_path: Path) -> None:
         "used_evidence_ids",
     ]
     assert "Verify the recorded state" in result.answer
+
+
+def test_release_evidence_rounds_hr_for_model_prose_without_changing_case_record(tmp_path: Path) -> None:
+    case = stable_case()
+    case.update(
+        case_id="real_like_release",
+        display_id="VS-REAL-RELEASE",
+        released_hr_bpm=75.06276150627616,
+        selected_candidate_hr_bpm=75.06276150627616,
+    )
+    store = store_with_case(tmp_path / "rounded-release.db", case)
+    engine = AssistantOrchestrator(store, provider=UnavailableProvider())
+    result = engine.chat(request(case["case_id"], "Explain the decision."))
+    output_ref = next(item for item in result.evidence_refs if item.label == "Recorded output state")
+    assert json.loads(output_ref.value)["released_hr_bpm"] == 75.1
+    assert store.get_case(case["case_id"])["released_hr_bpm"] == 75.06276150627616
+    assert any(item.label == "Causal evidence contract" for item in result.evidence_refs)
+    assert any(item.label == "Checks excluded from causal attribution" for item in result.evidence_refs)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "The low motion score caused the candidate-track conflict, so the state remains review and HR is withheld [E1].",
+        "运动评分过低导致候选轨迹冲突，因此当前保持复核且心率不发布 [E1]。",
+    ],
+)
+def test_model_cannot_blame_within_target_motion_for_track_conflict(tmp_path: Path, answer: str) -> None:
+    case = stable_case()
+    case.update(
+        case_id="real_like_track_review",
+        display_id="VS-REAL-REVIEW",
+        decision="review",
+        released_hr_bpm=None,
+        competing_track_count=3,
+        window_consistency_fraction=0.80,
+        review_reason="Competing cross-window candidate tracks remain plausible.",
+        recommended_action="Keep the competing tracks linked to the case and route them to review.",
+    )
+    provider = ScriptedProvider(answer, used_ids=["E1"])
+    engine = AssistantOrchestrator(store_with_case(tmp_path / "track-review.db", case), provider=provider)
+    result = engine.chat(request(case["case_id"], "Explain why this case requires review."))
+    assert result.provider == "deterministic_fallback"
+    assert result.degraded is True
+    assert result.validation.fallback_reason == "model answer treated a non-driver as causal: Motion"
+
+
+def duration_only_retake_case() -> dict[str, Any]:
+    case = stable_case()
+    case.update(
+        case_id="real_like_duration_retake",
+        display_id="VS-REAL-RETAKE",
+        decision="retake",
+        released_hr_bpm=None,
+        selected_candidate_hr_bpm=None,
+        candidate_count=0,
+        candidates=[],
+        review_reason="The recording duration did not reach the acquisition minimum.",
+        recommended_action="Record at least 8 seconds; 20-30 seconds is preferred.",
+        preflight={
+            "overall": "fail",
+            "checks": [
+                {"check": "duration", "value": 5.017, "unit": "s", "status": "fail", "action": "Record at least 8 seconds; 20-30 seconds is preferred."},
+                {"check": "frame rate", "value": 29.9, "unit": "fps", "status": "pass", "action": "No action required."},
+                {"check": "resolution", "value": 480.0, "unit": "px short edge", "status": "pass", "action": "No action required."},
+                {"check": "illumination", "value": 203.801, "unit": "luma", "status": "pass", "action": "No action required."},
+                {"check": "motion", "value": 0.415, "unit": "mean frame delta", "status": "pass", "action": "No action required."},
+                {"check": "face visibility", "value": 1.0, "unit": "fraction", "status": "pass", "action": "No action required."},
+            ],
+        },
+    )
+    return case
+
+
+def test_model_cannot_blame_passing_illumination_for_duration_retake(tmp_path: Path) -> None:
+    case = duration_only_retake_case()
+    provider = ScriptedProvider(
+        "Retake was required because illumination was insufficient; HR remains withheld [E1].",
+        used_ids=["E1"],
+    )
+    engine = AssistantOrchestrator(store_with_case(tmp_path / "duration-retry.db", case), provider=provider)
+    result = engine.chat(request(case["case_id"], "Why must this video be recorded again?"))
+    assert result.provider == "deterministic_fallback"
+    assert result.degraded is True
+    assert result.validation.fallback_reason == "model answer treated a non-driver as causal: illumination"
+
+
+def test_model_may_explicitly_describe_a_passing_check_as_noncausal(tmp_path: Path) -> None:
+    case = duration_only_retake_case()
+    provider = ScriptedProvider(
+        "Illumination was within target and did not trigger retake; duration failed, so HR remains withheld [E1].",
+        used_ids=["E1"],
+    )
+    engine = AssistantOrchestrator(store_with_case(tmp_path / "duration-grounded.db", case), provider=provider)
+    result = engine.chat(request(case["case_id"], "Why must this video be recorded again?"))
+    assert result.provider == "scripted"
+    assert result.degraded is False
+    assert "causal attribution matches triggered evidence" in result.validation.checks
 
 
 def test_selected_case_with_incomplete_model_sections_falls_back(tmp_path: Path) -> None:
