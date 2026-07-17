@@ -706,7 +706,7 @@ try {
   await page.getByText("Operator saved for future audit events.").first().waitFor({ state: "visible", timeout: 15000 });
   check("operator setting saved", true);
   text = await bodyText(page);
-  check("organization access panel is visible", text.includes("Organization access"), text.slice(-1800));
+  check("organization access panel is visible", text.includes("Organization & access"), text.slice(-1800));
   await page.getByText("Recent access audit", { exact: true }).click();
   await page.getByRole("button", { name: /Download access audit CSV/ }).waitFor({ state: "visible", timeout: 15000 });
   check("organization access audit exposes a CSV export", true);
