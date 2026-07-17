@@ -99,7 +99,10 @@ def run_scenario(
     else:
         check("non-release HR is withheld in contract", (response.get("decision_summary") or {}).get("released_hr_bpm") is None)
         check("non-release answer contains no BPM value", not re.search(r"-?\d+(?:\.\d+)?\s*BPM", answer, re.IGNORECASE))
-        withholding_terms = r"withheld|not published|not released|不发布|不输出|暂不发布|保持隐藏|保留不报"
+        withholding_terms = (
+            r"withheld|not published|not released|不发布|不输出|暂不发布|"
+            r"未发布|被保留|保持隐藏|保留不报"
+        )
         check("non-release answer states HR withholding", bool(re.search(withholding_terms, answer, re.IGNORECASE)))
 
     if expected_state == "review":
