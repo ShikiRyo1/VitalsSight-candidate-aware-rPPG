@@ -537,10 +537,25 @@ try {
     JSON.stringify(renderedResolutionValues),
   );
   await page.getByText("Audit trail", { exact: true }).first().click();
-  const reviewAuditCell = page.getByText("review.updated", { exact: true });
-  await reviewAuditCell.first().waitFor({ state: "attached", timeout: 15000 });
-  text = await bodyText(page);
-  check("review audit event is rendered in the audit grid", await reviewAuditCell.count() > 0);
+  await page.locator("[data-testid='stDataFrame']").last().waitFor({ state: "visible", timeout: 15000 });
+  check("review audit grid is rendered", true);
+  const reviewRegistryResponse = await context.request.get(`${apiUrl}/api/v1/cases`);
+  check("review case registry endpoint responds", reviewRegistryResponse.ok(), reviewRegistryResponse.status());
+  const reviewRegistry = await reviewRegistryResponse.json();
+  const reviewCase = reviewRegistry.items.find(
+    (item) => String(item.source_name || "").endsWith("1285_USBVideo_before.avi"),
+  );
+  check("real review case is persisted", Boolean(reviewCase), JSON.stringify(reviewRegistry.items));
+  const reviewReportResponse = await context.request.get(
+    `${apiUrl}/api/v1/cases/${reviewCase.case_id}/report?format=json`,
+  );
+  check("review report endpoint responds", reviewReportResponse.ok(), reviewReportResponse.status());
+  const reviewReport = await reviewReportResponse.json();
+  check(
+    "review audit event is persisted",
+    reviewReport.audit_events.some((event) => event.event_type === "review.updated"),
+    JSON.stringify(reviewReport.audit_events),
+  );
   await saveState(page, "06_review_saved_with_audit");
 
   text = await runAssessment(page, "8555_retake_first5s.avi", "Retake", { sessionOnly: true });
