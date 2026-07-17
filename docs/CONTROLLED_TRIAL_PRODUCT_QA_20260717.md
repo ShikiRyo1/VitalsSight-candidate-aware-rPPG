@@ -68,6 +68,7 @@ The harness refuses a dirty checkout or a commit mismatch. Both FastAPI and Stre
 5. Real review explanations could attribute causality to passing evidence; the composer now hides non-causal raw values from prose generation, performs one validator-guided repair and falls back deterministically if repair fails.
 6. Grounded Chinese HR-withholding wording was too narrow for the validator; the accepted lexical forms were expanded without permitting a BPM value in non-release prose.
 7. Real research images were rejected by a filename-specific fixture rule; multimodal acceptance now validates a content-grounded real image contract while retaining the no-identification and no-vital-inference boundary.
+8. Browser acceptance waited for one English inflection of HR withholding even when the model returned an equivalent validated form; completion now waits for the scoped model provenance marker and the semantic assertion accepts `withhold`, `withholds`, `withholding` and `withheld` without relaxing the no-BPM rule.
 
 ## Operational recovery
 

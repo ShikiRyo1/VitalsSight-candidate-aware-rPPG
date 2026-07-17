@@ -279,11 +279,18 @@ async function validateAssistantWorkspace(page) {
   await page.getByRole("button", { name: /Explain this state/ }).click();
   const assistantMessage = page.getByLabel("Chat message from assistant").last();
   await assistantMessage.waitFor({ state: "visible", timeout: 360000 });
-  await assistantMessage.getByText(/\bwithheld\b/i).first().waitFor({ state: "visible", timeout: 360000 });
+  await assistantMessage.getByText(new RegExp(escapedAssistantModel, "i")).first().waitFor({
+    state: "visible",
+    timeout: 360000,
+  });
   text = await assistantMessage.innerText();
+  const withholdingTerm = String.raw`(?:\bwithheld\b|\bwithhold(?:s|ing)?\b)`;
+  const hrTerm = String.raw`(?:\bHR\b|\bheart rate\b)`;
   const withholdsHr = (
-    /(?:\bHR\b|\bheart rate\b)[\s\S]{0,80}\bwithheld\b|\bwithheld\b[\s\S]{0,80}(?:\bHR\b|\bheart rate\b)/i
-      .test(text)
+    new RegExp(
+      `${hrTerm}[\\s\\S]{0,80}${withholdingTerm}|${withholdingTerm}[\\s\\S]{0,80}${hrTerm}`,
+      "i",
+    ).test(text)
   );
   check("assistant preserves the recorded review state", /review/i.test(text), text);
   check("assistant withholds HR for review", withholdsHr, text);
@@ -875,7 +882,7 @@ try {
   console.log(JSON.stringify({ passed: manifest.passed, checks: checks.length, outputRoot }));
 } catch (error) {
   const failure = {
-    validation_version: "vitalssight.browser-product-validation.v5",
+    validation_version: "vitalssight.browser-product-validation.v6",
     passed: false,
     git_commit: commit,
     error: String(error?.stack || error),
