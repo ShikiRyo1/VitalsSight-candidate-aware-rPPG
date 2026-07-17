@@ -959,6 +959,7 @@ def _reports(store: ConsoleStore) -> None:
                 runtime.get("max_analysis_frames", "N/A"),
             ],
         ]
+        provenance_rows = [[field, _data_text(value)] for field, value in provenance_rows]
         st.dataframe(
             pd.DataFrame(
                 provenance_rows,
