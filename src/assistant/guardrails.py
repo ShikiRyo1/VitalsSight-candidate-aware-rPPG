@@ -81,7 +81,7 @@ def collect_allowed_measurements(tool_results: list[dict[str, Any]]) -> dict[str
         for precision in (1, 2, 3, 4):
             allowed[unit].add(round(float(value), precision))
 
-    trusted_numeric_text = {"excerpt", "verification", "because", "rationale", "expected_outcome"}
+    trusted_numeric_text = {"excerpt", "observed", "verification", "because", "rationale", "expected_outcome"}
 
     def visit(value: Any, *, field: str = "") -> None:
         if isinstance(value, bool) or value is None:

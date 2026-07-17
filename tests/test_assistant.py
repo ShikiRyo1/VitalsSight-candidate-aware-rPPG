@@ -525,6 +525,17 @@ def test_grounded_fps_in_versioned_knowledge_passes_post_validation(tmp_path: Pa
     assert result.degraded is False
 
 
+def test_grounded_percentage_from_structured_action_plan_passes_post_validation(tmp_path: Path) -> None:
+    provider = ScriptedProvider(
+        "Selector support was 46%, so HR remains withheld for review [E1].",
+        used_ids=["E1"],
+    )
+    engine = AssistantOrchestrator(seeded_store(tmp_path / "assistant.db"), provider=provider)
+    result = engine.chat(request("demo_motion_conflict", "Explain the review evidence."))
+    assert result.provider == "scripted"
+    assert result.degraded is False
+
+
 def test_user_query_number_does_not_ground_a_model_numeric_claim(tmp_path: Path) -> None:
     provider = ScriptedProvider("Use a recording rate of 999 fps [E1].", used_ids=["E1"])
     engine = AssistantOrchestrator(seeded_store(tmp_path / "assistant.db"), provider=provider)
