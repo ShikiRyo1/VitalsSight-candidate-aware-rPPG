@@ -175,7 +175,7 @@ try {
   const imageResponse = await desktop.request.post(`${apiUrl}/api/v1/assistant/analyze-image`, {
     multipart: {
       file: { name: imageName, mimeType: "image/png", buffer: imageBuffer },
-      question: "Explain the visible VitalsSight workflow and the safest next user action.",
+      question: "Describe the visible authorized research image and the safest next workflow action without inferring identity or a vital sign.",
       language: "en",
     },
     timeout: 180000,
@@ -266,7 +266,7 @@ try {
   await ensureExpanderOpen(page);
   await page.getByRole("tab", { name: "Image", exact: true }).click();
   const focusInput = page.getByRole("textbox", { name: "What should the assistant focus on?", exact: true });
-  await focusInput.fill("Explain what this VitalsSight screen shows and what the user should do next.");
+  await focusInput.fill("Describe this authorized research image and what the user should do next without inferring identity or a vital sign.");
   const analyzeButton = page.getByRole("button", { name: /Analyze safely/ });
   await analyzeButton.waitFor({ state: "visible", timeout: 30000 });
   await analyzeButton.click();
