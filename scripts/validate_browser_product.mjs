@@ -645,8 +645,29 @@ try {
 
   await gotoWorkspace(page, "Participants");
   text = await bodyText(page);
-  check("participant registry renders the API-created pseudonym", text.includes("P-BROWSER-QA"), text.slice(0, 1800));
-  check("participant registry renders versioned consent", text.includes("browser-consent-v1"), text.slice(-1800));
+  check(
+    "participant registry renders enrollment and consent modules",
+    text.includes("Participant registry") && text.includes("Consent versions") && text.includes("Consent history"),
+    text.slice(0, 2200),
+  );
+  const participantsResponse = await context.request.get(`${apiUrl}/api/v1/participants`);
+  check("participant registry API responds", participantsResponse.ok(), participantsResponse.status());
+  const participantsPayload = await participantsResponse.json();
+  check(
+    "participant registry retains the API-created pseudonym",
+    participantsPayload.items.some((item) => item.pseudonym === "P-BROWSER-QA"),
+    JSON.stringify(participantsPayload.items),
+  );
+  const consentsResponse = await context.request.get(
+    `${apiUrl}/api/v1/participants/${participant.participant_id}/consents`,
+  );
+  check("participant consent API responds", consentsResponse.ok(), consentsResponse.status());
+  const consentsPayload = await consentsResponse.json();
+  check(
+    "participant registry retains versioned consent",
+    consentsPayload.items.some((item) => item.document_version === "browser-consent-v1" && item.status === "active"),
+    JSON.stringify(consentsPayload.items),
+  );
   check("participant registry avoids direct identity fields", !text.includes("Medical record number") && !text.includes("Phone number"));
 
   await gotoWorkspace(page, "Cases");
