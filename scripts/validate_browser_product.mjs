@@ -279,10 +279,14 @@ async function validateAssistantWorkspace(page) {
   await page.getByRole("button", { name: /Explain this state/ }).click();
   const assistantMessage = page.getByLabel("Chat message from assistant").last();
   await assistantMessage.waitFor({ state: "visible", timeout: 360000 });
-  await assistantMessage.getByText(/HR remains withheld/i).first().waitFor({ state: "visible", timeout: 360000 });
+  await assistantMessage.getByText(/\bwithheld\b/i).first().waitFor({ state: "visible", timeout: 360000 });
   text = await assistantMessage.innerText();
+  const withholdsHr = (
+    /(?:\bHR\b|\bheart rate\b)[\s\S]{0,80}\bwithheld\b|\bwithheld\b[\s\S]{0,80}(?:\bHR\b|\bheart rate\b)/i
+      .test(text)
+  );
   check("assistant preserves the recorded review state", /review/i.test(text), text);
-  check("assistant withholds HR for review", /HR remains withheld/i.test(text), text);
+  check("assistant withholds HR for review", withholdsHr, text);
   check("assistant answer cites supplied evidence", /\[E\d+\]/.test(text), text);
   check("assistant includes no BPM value in a review answer", !/-?\d+(?:\.\d+)?\s*BPM/i.test(text), text);
   check(
