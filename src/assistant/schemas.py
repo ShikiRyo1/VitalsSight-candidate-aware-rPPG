@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -170,6 +170,35 @@ class ImageAnalysisResponse(BaseModel):
     degraded: bool = False
     raw_image_retained: Literal[False] = False
     warning_or_boundary: str
+
+
+class AssistantVoiceChatResponse(BaseModel):
+    """One-call speech transcription followed by an evidence-bounded reply."""
+
+    transcription: AudioTranscriptionResponse
+    assistant: AssistantChatResponse
+    transcript_review_required: bool
+    raw_audio_retained: Literal[False] = False
+
+
+class AssistantImageChatResponse(BaseModel):
+    """One-call privacy-normalized image intake followed by a bounded reply."""
+
+    image: ImageAnalysisResponse
+    assistant: AssistantChatResponse
+    raw_image_retained: Literal[False] = False
+
+
+class AssistantWorkflowResponse(BaseModel):
+    """Deterministic assessment output with inline assistant and report views."""
+
+    case: dict[str, Any]
+    report: dict[str, Any]
+    assistant: AssistantChatResponse
+    available_exports: dict[str, str]
+    raw_video_retained: Literal[False] = False
+    report_approval_status: Literal["unversioned"] = "unversioned"
+    claim_boundary: str
 
 
 class AssistantConfirmRequest(BaseModel):

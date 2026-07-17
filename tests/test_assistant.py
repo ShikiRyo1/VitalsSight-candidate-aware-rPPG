@@ -147,8 +147,13 @@ class ScriptedTranscriber:
     provider_name = "scripted-speech"
     model_name = "whisper-test"
 
-    def __init__(self, text: str = "Why does this case require review?") -> None:
+    def __init__(
+        self,
+        text: str = "Why does this case require review?",
+        quality: str = "clear",
+    ) -> None:
         self.text = text
+        self.quality = quality
         self.paths: list[Path] = []
 
     def status(self) -> SpeechStatus:
@@ -158,7 +163,7 @@ class ScriptedTranscriber:
         assert audio_path.exists()
         assert audio_path.read_bytes()
         self.paths.append(audio_path)
-        return SpeechResult(self.text, language or "en", 2.4, "clear")
+        return SpeechResult(self.text, language or "en", 2.4, self.quality)
 
 
 def sample_image_bytes() -> bytes:
@@ -1089,3 +1094,152 @@ def test_multimodal_api_rejects_unsupported_media_types(tmp_path: Path) -> None:
         files={"file": ("payload.txt", b"not audio", "text/plain")},
     )
     assert speech.status_code == 415
+
+
+def test_voice_chat_transcribes_and_answers_in_one_call(tmp_path: Path) -> None:
+    transcriber = ScriptedTranscriber("Why does this case require review?")
+    service = MultimodalAssistantService(
+        vision_provider=ScriptedVisionProvider(),
+        speech_transcriber=transcriber,
+    )
+    client = TestClient(
+        create_app(
+            tmp_path / "voice-chat.db",
+            assistant_provider=UnavailableProvider(),
+            multimodal_service=service,
+        )
+    )
+    response = client.post(
+        "/api/v1/assistant/voice-chat",
+        data={
+            "language": "en",
+            "role": "operator",
+            "case_id": "demo_motion_conflict",
+        },
+        files={"file": ("question.wav", b"RIFF-test-wave-bytes", "audio/wav")},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["transcription"]["transcript"] == "Why does this case require review?"
+    assert payload["transcription"]["raw_audio_retained"] is False
+    assert payload["raw_audio_retained"] is False
+    assert payload["assistant"]["decision_summary"]["state"] == "review"
+    assert payload["assistant"]["decision_summary"]["released_hr_bpm"] is None
+    assert "BPM" not in payload["assistant"]["answer"]
+    assert all(not path.exists() for path in transcriber.paths)
+
+
+def test_uncertain_voice_chat_cannot_prepare_a_state_change(tmp_path: Path) -> None:
+    transcriber = ScriptedTranscriber(
+        "Close this review and set high priority.",
+        quality="uncertain",
+    )
+    service = MultimodalAssistantService(
+        vision_provider=ScriptedVisionProvider(),
+        speech_transcriber=transcriber,
+    )
+    client = TestClient(
+        create_app(
+            tmp_path / "uncertain-voice-chat.db",
+            assistant_provider=UnavailableProvider(),
+            multimodal_service=service,
+            assistant_actions_enabled=True,
+        )
+    )
+    response = client.post(
+        "/api/v1/assistant/voice-chat",
+        data={
+            "language": "en",
+            "role": "reviewer",
+            "case_id": "demo_motion_conflict",
+        },
+        files={"file": ("uncertain.wav", b"RIFF-test-wave-bytes", "audio/wav")},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["transcript_review_required"] is True
+    assert payload["assistant"]["pending_action"] is None
+    assert payload["assistant"]["decision_summary"]["state"] == "review"
+    assert payload["assistant"]["decision_summary"]["released_hr_bpm"] is None
+    assert all(not path.exists() for path in transcriber.paths)
+
+
+def test_image_chat_analyzes_and_answers_in_one_call(tmp_path: Path) -> None:
+    service = MultimodalAssistantService(
+        vision_provider=ScriptedVisionProvider(),
+        speech_transcriber=ScriptedTranscriber(),
+    )
+    client = TestClient(
+        create_app(
+            tmp_path / "image-chat.db",
+            assistant_provider=UnavailableProvider(),
+            multimodal_service=service,
+        )
+    )
+    response = client.post(
+        "/api/v1/assistant/image-chat",
+        data={
+            "language": "en",
+            "role": "operator",
+            "question": "Explain the visible workflow issue.",
+        },
+        files={"file": ("screen.png", sample_image_bytes(), "image/png")},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["image"]["context"]["kind"] == "image"
+    assert payload["image"]["context"]["authoritative"] is False
+    assert payload["raw_image_retained"] is False
+    assert payload["assistant"]["case_id"] is None
+    assert any(item["kind"] == "media" for item in payload["assistant"]["evidence_refs"])
+
+
+def test_video_assistant_workflow_returns_state_explanation_and_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cv2 = pytest.importorskip("cv2")
+    import numpy as np
+
+    video_path = tmp_path / "short_dark.avi"
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"MJPG"), 15.0, (320, 240))
+    assert writer.isOpened()
+    for _ in range(30):
+        writer.write(np.full((240, 320, 3), 8, dtype=np.uint8))
+    writer.release()
+    upload_dir = tmp_path / "assistant-workflow-uploads"
+    monkeypatch.setenv("VITALSSIGHT_UPLOAD_DIR", str(upload_dir))
+    client = TestClient(
+        create_app(
+            tmp_path / "video-workflow.db",
+            seed_demo=False,
+            assistant_provider=UnavailableProvider(),
+        )
+    )
+    with video_path.open("rb") as handle:
+        response = client.post(
+            "/api/v1/assistant/workflows/video",
+            data={
+                "consent_recorded": "true",
+                "purpose": "workflow_validation",
+                "retention_policy": "delete_after_analysis",
+                "instruction": "Explain the state and give the next action.",
+                "role": "operator",
+                "language": "en",
+            },
+            files={"file": (video_path.name, handle, "video/x-msvideo")},
+        )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["case"]["decision"] == "retake"
+    assert payload["case"]["released_hr_bpm"] is None
+    assert payload["assistant"]["decision_summary"]["state"] == "retake"
+    assert payload["assistant"]["decision_summary"]["released_hr_bpm"] is None
+    assert "BPM" not in payload["assistant"]["answer"]
+    assert payload["report"]["case"]["case_id"] == payload["case"]["case_id"]
+    assert payload["report"]["governance"]["raw_media_retained"] is False
+    assert payload["report_approval_status"] == "unversioned"
+    assert set(payload["available_exports"]) == {"json", "pdf", "fhir"}
+    assert payload["raw_video_retained"] is False
+    assert not any(path.is_file() for path in upload_dir.rglob("*"))
+    openapi = client.get("/openapi.json").json()["paths"]
+    assert "/api/v1/assistant/voice-chat" in openapi
+    assert "/api/v1/assistant/image-chat" in openapi
+    assert "/api/v1/assistant/workflows/video" in openapi

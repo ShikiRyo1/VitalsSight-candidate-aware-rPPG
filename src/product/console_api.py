@@ -17,12 +17,17 @@ from src.assistant import (
     AssistantConfirmRequest,
     AssistantConfirmResponse,
     AssistantHealthResponse,
+    AssistantImageChatResponse,
+    AssistantMediaContext,
     AssistantMultimodalHealthResponse,
+    AssistantVoiceChatResponse,
+    AssistantWorkflowResponse,
     AudioTranscriptionResponse,
     ImageAnalysisResponse,
     MultimodalAssistantService,
     AssistantOrchestrator,
 )
+from src.assistant.schemas import AssistantLanguage, AssistantRole
 from src.assistant.multimodal import MediaProcessingError
 from src.assistant.provider import ChatProvider
 from src.product.console_service import (
@@ -278,6 +283,29 @@ def create_app(
         )
         return sanitize_report_value(enriched)
 
+    def bounded_assistant_role(requested: str, identity: IdentityContext) -> AssistantRole:
+        try:
+            role = AssistantRole(requested)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail="Unsupported assistant role") from error
+        if identity.has_any_role(ROLE_ORG_ADMIN):
+            allowed = set(AssistantRole)
+        elif identity.has_any_role(ROLE_REVIEWER):
+            allowed = {AssistantRole.operator, AssistantRole.reviewer, AssistantRole.clinician}
+        elif identity.has_any_role(ROLE_RESEARCHER, ROLE_AUDITOR):
+            allowed = {AssistantRole.clinician}
+        else:
+            allowed = {AssistantRole.operator}
+        if role not in allowed:
+            raise HTTPException(status_code=403, detail="The requested assistant role is not permitted")
+        return role
+
+    def bounded_assistant_language(requested: str) -> AssistantLanguage:
+        try:
+            return AssistantLanguage(requested)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail="language must be zh or en") from error
+
     @app.get("/health")
     def health() -> dict[str, Any]:
         return sanitize_report_value({
@@ -473,6 +501,49 @@ def create_app(
         finally:
             file.file.close()
 
+    @app.post("/api/v1/assistant/voice-chat", response_model=AssistantVoiceChatResponse)
+    def assistant_voice_chat(
+        file: UploadFile = File(...),
+        case_id: str = Form(""),
+        role: str = Form("operator"),
+        language: str = Form("zh"),
+        conversation_id: str = Form(""),
+        identity: IdentityContext = Depends(capture_identity),
+    ) -> AssistantVoiceChatResponse:
+        selected_language = bounded_assistant_language(language)
+        selected_role = bounded_assistant_role(role, identity)
+        transcription = assistant_transcribe(file=file, language=language, identity=identity)
+        context = transcription.context.model_copy(update={"summary": transcription.transcript})
+        response = assistant_chat(
+            AssistantChatRequest(
+                message=transcription.transcript,
+                case_id=case_id.strip() or None,
+                role=selected_role,
+                language=selected_language,
+                actor=identity.actor,
+                conversation_id=conversation_id.strip() or None,
+                # An uncertain transcript may be explained, but it cannot prepare a mutation.
+                allow_action_proposals=False,
+                media_contexts=[context],
+            ),
+            identity=identity,
+        )
+        scoped(identity).log_access(
+            action="assistant.voice-chat",
+            resource_type="case" if case_id.strip() else "knowledge",
+            resource_id=case_id.strip(),
+            details={
+                "trace_id": response.tool_trace_id,
+                "transcript_review_required": transcription.quality == "uncertain",
+                "raw_media_retained": False,
+            },
+        )
+        return AssistantVoiceChatResponse(
+            transcription=transcription,
+            assistant=response,
+            transcript_review_required=transcription.quality == "uncertain",
+        )
+
     @app.post("/api/v1/assistant/analyze-image", response_model=ImageAnalysisResponse)
     def assistant_analyze_image(
         file: UploadFile = File(...),
@@ -503,6 +574,50 @@ def create_app(
             raise HTTPException(status_code=error.status_code, detail=str(error)) from error
         finally:
             file.file.close()
+
+    @app.post("/api/v1/assistant/image-chat", response_model=AssistantImageChatResponse)
+    def assistant_image_chat(
+        file: UploadFile = File(...),
+        question: str = Form(""),
+        case_id: str = Form(""),
+        role: str = Form("operator"),
+        language: str = Form("zh"),
+        conversation_id: str = Form(""),
+        identity: IdentityContext = Depends(capture_identity),
+    ) -> AssistantImageChatResponse:
+        selected_language = bounded_assistant_language(language)
+        selected_role = bounded_assistant_role(role, identity)
+        prompt = question.strip() or (
+            "解释这张图片与 VitalsSight 工作流的关系，并给出下一步操作。"
+            if selected_language == AssistantLanguage.zh
+            else "Explain how this image relates to the VitalsSight workflow and give the next action."
+        )
+        image = assistant_analyze_image(
+            file=file,
+            question=prompt,
+            language=language,
+            identity=identity,
+        )
+        response = assistant_chat(
+            AssistantChatRequest(
+                message=prompt,
+                case_id=case_id.strip() or None,
+                role=selected_role,
+                language=selected_language,
+                actor=identity.actor,
+                conversation_id=conversation_id.strip() or None,
+                allow_action_proposals=False,
+                media_contexts=[AssistantMediaContext.model_validate(image.context)],
+            ),
+            identity=identity,
+        )
+        scoped(identity).log_access(
+            action="assistant.image-chat",
+            resource_type="case" if case_id.strip() else "knowledge",
+            resource_id=case_id.strip(),
+            details={"trace_id": response.tool_trace_id, "raw_media_retained": False},
+        )
+        return AssistantImageChatResponse(image=image, assistant=response)
 
     @app.post("/api/v1/assistant/chat", response_model=AssistantChatResponse)
     def assistant_chat(
@@ -673,6 +788,87 @@ def create_app(
             file.file.close()
             if temporary_path.exists():
                 temporary_path.unlink()
+
+    @app.post(
+        "/api/v1/assistant/workflows/video",
+        status_code=201,
+        response_model=AssistantWorkflowResponse,
+    )
+    def assistant_video_workflow(
+        file: UploadFile = File(...),
+        consent_recorded: bool = Form(...),
+        purpose: str = Form("workflow_validation"),
+        retention_policy: str = Form("delete_after_analysis"),
+        participant_id: str = Form(""),
+        study_id: str = Form(""),
+        consent_document_version: str = Form(""),
+        instruction: str = Form(""),
+        role: str = Form("operator"),
+        language: str = Form("zh"),
+        conversation_id: str = Form(""),
+        identity: IdentityContext = Depends(capture_identity),
+    ) -> AssistantWorkflowResponse:
+        selected_language = bounded_assistant_language(language)
+        selected_role = bounded_assistant_role(role, identity)
+        assessment = assess_video(
+            file=file,
+            consent_recorded=consent_recorded,
+            purpose=purpose,
+            retention_policy=retention_policy,
+            participant_id=participant_id,
+            study_id=study_id,
+            consent_document_version=consent_document_version,
+            identity=identity,
+        )
+        case = dict(assessment["item"])
+        prompt = instruction.strip() or (
+            "视频流程已完成。请解释当前输出状态、主要证据、下一步操作和报告边界。"
+            if selected_language == AssistantLanguage.zh
+            else "The video workflow is complete. Explain the output state, main evidence, next action, and report boundary."
+        )
+        assistant_response = assistant_chat(
+            AssistantChatRequest(
+                message=prompt,
+                case_id=str(case["case_id"]),
+                role=selected_role,
+                language=selected_language,
+                actor=identity.actor,
+                conversation_id=conversation_id.strip() or None,
+                allow_action_proposals=False,
+            ),
+            identity=identity,
+        )
+        audience = "participant" if identity.primary_role == ROLE_PARTICIPANT else "operator"
+        report = governed_report(
+            scoped(identity),
+            identity,
+            str(case["case_id"]),
+            audience=audience,
+            language=selected_language.value,
+        )
+        case_id = str(case["case_id"])
+        scoped(identity).log_access(
+            action="assistant.workflow.video",
+            resource_type="case",
+            resource_id=case_id,
+            details={
+                "decision": case["decision"],
+                "trace_id": assistant_response.tool_trace_id,
+                "raw_media_retained": False,
+                "report_approval_status": "unversioned",
+            },
+        )
+        return AssistantWorkflowResponse(
+            case=case,
+            report=report,
+            assistant=assistant_response,
+            available_exports={
+                "json": f"/api/v1/cases/{case_id}/report?format=json&language={selected_language.value}&audience={audience}",
+                "pdf": f"/api/v1/cases/{case_id}/report?format=pdf&language={selected_language.value}&audience={audience}",
+                "fhir": f"/api/v1/cases/{case_id}/report?format=fhir&language={selected_language.value}&audience={audience}",
+            },
+            claim_boundary=CLAIM_BOUNDARY,
+        )
 
     @app.get("/api/v1/cases/{case_id}")
     def get_case(

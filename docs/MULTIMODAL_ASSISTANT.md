@@ -19,7 +19,7 @@ The multimodal layer changes how users provide a question or supporting workflow
 2. The service enforces byte, extension, and 120-second duration limits.
 3. `faster-whisper small` runs locally with CPU int8 by default.
 4. The temporary decoder file is deleted in `finally` whether transcription succeeds or fails.
-5. The transcript is shown in an editable field. The user decides whether to send it.
+5. A clear transcript is sent directly to read-only chat and remains visible as the user turn. An uncertain transcript is shown in an editable field and requires confirmation before sending.
 6. The next chat turn receives text plus a hash-bound `audio_transcript` context; no audio bytes are sent to Qwen or written to the audit database.
 
 The `clear`/`uncertain` label is an acoustic heuristic, not a word-error-rate estimate. Names, abbreviations, negation, drug names, and clinical terminology require manual verification. Clinical questions remain outside the assistant boundary even when spoken.
@@ -43,7 +43,10 @@ Images may help explain a screen, identify a capture-quality issue visible to a 
 |---|---|---|
 | `GET` | `/api/v1/assistant/multimodal/health` | Independent speech and image capability status |
 | `POST` | `/api/v1/assistant/transcribe` | Multipart audio to editable local transcript |
+| `POST` | `/api/v1/assistant/voice-chat` | Multipart audio to local transcript and evidence-bounded reply in one call |
 | `POST` | `/api/v1/assistant/analyze-image` | Multipart image to bounded visual context |
+| `POST` | `/api/v1/assistant/image-chat` | Privacy-normalized image analysis and evidence-bounded reply in one call |
+| `POST` | `/api/v1/assistant/workflows/video` | Consented video assessment, output state, assistant explanation, and inline report contract |
 | `POST` | `/api/v1/assistant/chat` | Text question with zero to two sanitized `media_contexts` |
 
 Every media response states `raw_audio_retained=false` or `raw_image_retained=false`. Audit rows store only context identifier, media kind, SHA-256 digest, and the same retention flag.

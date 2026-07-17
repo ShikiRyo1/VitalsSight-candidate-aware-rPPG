@@ -14,7 +14,7 @@ This release contains:
 - protocol-aligned selector, ablation and cross-domain experiment entry points;
 - participant-cluster bootstrap and subject-disjoint risk-audit scripts;
 - partial runtime profiling and the Streamlit research interface;
-- a local, evidence-bounded AI assistant with typed, voice and image input, deterministic fallback, and explicit action confirmation;
+- a local, evidence-bounded AI assistant with typed, voice, image, and consented-video input, deterministic fallback, inline workflow reports, and explicit action confirmation;
 - protocol descriptors and aggregate manuscript metrics.
 
 This release does **not** contain raw videos, identifiable participant frames, third-party datasets, third-party repositories, model checkpoints, private paths, credentials or internal execution logs. The pinned MediaPipe Face Landmarker runtime asset is installed separately from Google's official model host and verified by SHA256. Dataset access remains governed by the original providers. The software is a research artifact and is not a medical device or a validated autonomous clinical-release system.
@@ -79,7 +79,9 @@ The previous experiment-heavy dashboard is retained at `app/legacy_research_dash
 
 ## Local evidence assistant
 
-The AI assistant is an optional local explanation and workflow layer. It accepts typed questions, locally transcribed voice, and bounded image context; retrieves case/report evidence; explains release/review/retake; locates quality failures; summarizes reports; navigates the console; and can prepare a review update that remains inert until a reviewer explicitly confirms it. The assistant cannot estimate or change HR from media, override the gate, access raw video, identify a person, diagnose, prescribe, or provide emergency guidance. If a model is unavailable, deterministic evidence guidance and modality-specific fallbacks remain available without changing the underlying VitalsSight workflow.
+The AI assistant is an optional local explanation and controlled workflow layer. Its unified workspace accepts typed questions, locally transcribed voice, bounded image context, and a consented video. A video request invokes the same deterministic assessment, release/review/retake gate, evidence store, action-plan builder, and report service used elsewhere in the product, then returns the state, explanation, next action, and PDF/JSON/Markdown/CSV/FHIR exports in the same interface. The assistant can retrieve case/report evidence, locate quality failures, navigate the console, and prepare a review update that remains inert until a reviewer explicitly confirms it. It cannot estimate or change HR from conversational media, override the gate, bypass consent, retain raw media, identify a person, diagnose, prescribe, or provide emergency guidance. If a model is unavailable, deterministic evidence guidance and modality-specific fallbacks remain available without changing the underlying VitalsSight workflow.
+
+The current unified-workspace acceptance record is documented in [`docs/UNIFIED_ASSISTANT_QA_20260718.md`](docs/UNIFIED_ASSISTANT_QA_20260718.md).
 
 Install Ollama separately, then prepare the high-quality local model and start the complete product:
 

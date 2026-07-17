@@ -244,8 +244,11 @@ def _init_state() -> None:
         "vs_assistant_voice_result": None,
         "vs_assistant_voice_transcript": "",
         "vs_assistant_image_result": None,
+        "vs_assistant_workflow_result": None,
+        "vs_assistant_workflow_report": None,
         "vs_assistant_audio_widget_version": 0,
         "vs_assistant_image_widget_version": 0,
+        "vs_assistant_video_widget_version": 0,
         "vs_flash": "",
         "vs_flash_kind": "success",
         # Keep the first mobile render interactive; only later workspace changes
@@ -1687,7 +1690,136 @@ def _discard_image_intake() -> None:
     st.session_state["vs_assistant_image_widget_version"] += 1
 
 
-def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
+def _discard_video_workflow() -> None:
+    st.session_state["vs_assistant_workflow_result"] = None
+    st.session_state["vs_assistant_workflow_report"] = None
+    st.session_state["vs_assistant_video_widget_version"] += 1
+
+
+def _assistant_report_payload(
+    store: ScopedConsoleStore,
+    identity: IdentityContext,
+    case: dict[str, Any],
+) -> dict[str, Any]:
+    audience = "participant" if identity.primary_role == ROLE_PARTICIPANT else "operator"
+    review = next(
+        (item for item in store.list_reviews() if item["case_id"] == case["case_id"]),
+        None,
+    )
+    payload = build_report_payload(
+        case,
+        review=review,
+        audit_events=store.audit_events(case["case_id"]),
+    )
+    payload = report_for_audience(payload, audience=audience)
+    participant_id = str(case.get("participant_id") or identity.participant_id or "")
+    participant = store.get_participant(participant_id) if participant_id else None
+    consent = (
+        store.active_consent(
+            participant_id=participant_id,
+            purpose=str(case.get("purpose") or "workflow_validation"),
+        )
+        if participant_id
+        else None
+    )
+    related_cases = store.list_cases(participant_id=participant_id) if participant_id else [case]
+    return enrich_report_payload(
+        payload,
+        organization_id=identity.organization_id,
+        audience=audience,
+        language="zh" if _is_zh() else "en",
+        participant=participant,
+        consent=consent,
+        longitudinal=build_longitudinal_context(
+            related_cases,
+            current_case_id=str(case["case_id"]),
+        ),
+    )
+
+
+def _assistant_workflow_result_panel(
+    case: dict[str, Any],
+    payload: dict[str, Any],
+) -> None:
+    language = "zh" if _is_zh() else "en"
+    st.markdown(
+        f"<div class='vs-assistant-workflow-head'><span>{_escape(_ui('WORKFLOW COMPLETE', '流程已完成'))}</span>"
+        f"<h3>{_escape(_ui('Evidence-linked result returned in the assistant', '证据关联结果已返回助手'))}</h3>"
+        f"<p>{_escape(_ui('The deterministic pipeline produced the state below; the AI explanation appears in the same conversation.', '以下状态由确定性流程生成；AI 解释会在同一对话中返回。'))}</p></div>",
+        unsafe_allow_html=True,
+    )
+    _result_summary(case)
+    _action_plan_panel(payload["action_plan"], compact=True)
+    with st.expander(_ui("Inline evidence report", "内嵌证据报告"), expanded=True, icon=":material/description:"):
+        _report_preview(payload)
+        st.caption(
+            f"{_ui('Evidence hash', '证据哈希')}: {payload['governance']['content_sha256'][:16]}… · "
+            f"{_ui('Approval', '审批状态')}: {_ui('unversioned; reviewer approval is still required', '未版本化；仍需复核人员审批')} · "
+            f"{_ui('Raw video retained', '原始视频留存')}: no"
+        )
+        markdown = build_report_markdown(payload, language=language)
+        pdf = build_report_pdf(payload, language=language)
+        fhir_bundle = build_fhir_bundle(payload)
+        export_cols = st.columns(5)
+        stem = str(case.get("display_id") or case["case_id"])
+        export_cols[0].download_button(
+            _ui("PDF", "PDF"),
+            pdf,
+            file_name=f"{stem}_evidence_report.pdf",
+            mime="application/pdf",
+            icon=":material/picture_as_pdf:",
+            width="stretch",
+            key=f"assistant_pdf_{case['case_id']}",
+        )
+        export_cols[1].download_button(
+            _ui("JSON", "JSON"),
+            json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+            file_name=f"{stem}_evidence_report.json",
+            mime="application/json",
+            icon=":material/data_object:",
+            width="stretch",
+            key=f"assistant_json_{case['case_id']}",
+        )
+        export_cols[2].download_button(
+            _ui("Markdown", "Markdown"),
+            markdown.encode("utf-8"),
+            file_name=f"{stem}_evidence_report.md",
+            mime="text/markdown",
+            icon=":material/article:",
+            width="stretch",
+            key=f"assistant_md_{case['case_id']}",
+        )
+        export_cols[3].download_button(
+            _ui("CSV", "CSV"),
+            pd.DataFrame([payload["case"]]).drop(
+                columns=[
+                    column
+                    for column in ["candidates", "trend_bpm", "preflight", "window_results"]
+                    if column in payload["case"]
+                ]
+            ).to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"{stem}_case.csv",
+            mime="text/csv",
+            icon=":material/table_view:",
+            width="stretch",
+            key=f"assistant_csv_{case['case_id']}",
+        )
+        export_cols[4].download_button(
+            _ui("FHIR", "FHIR"),
+            json.dumps(fhir_bundle, ensure_ascii=False, indent=2).encode("utf-8"),
+            file_name=f"{stem}_fhir_bundle.json",
+            mime="application/fhir+json",
+            icon=":material/sync_alt:",
+            width="stretch",
+            key=f"assistant_fhir_{case['case_id']}",
+        )
+
+
+def _multimodal_intake(
+    multimodal: MultimodalAssistantService,
+    store: ScopedConsoleStore,
+    identity: IdentityContext,
+) -> None:
     health = multimodal.health()
     image_state = _ui("Image ready", "图片就绪") if health.image.available else _ui("Technical fallback", "图片技术降级")
     speech_state = _ui("Voice ready", "语音就绪") if health.speech.available else _ui("Voice unavailable", "语音不可用")
@@ -1695,19 +1827,30 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
         "<div class='vs-modalities'>"
         f"<div class='{'ready' if health.speech.available else 'degraded'}'><span>{_escape(_ui('VOICE', '语音'))}</span><b>{_escape(speech_state)}</b><small>{_escape(health.speech.model)}</small></div>"
         f"<div class='{'ready' if health.image.available else 'degraded'}'><span>{_escape(_ui('IMAGE', '图片'))}</span><b>{_escape(image_state)}</b><small>{_escape(health.image.model)}</small></div>"
-        f"<div class='bounded'><span>{_escape(_ui('MEDIA POLICY', '媒体策略'))}</span><b>{_escape(_ui('Transient, non-authoritative context', '临时、非权威上下文'))}</b><small>{_escape(_ui('Raw media is not retained', '不保留原始媒体'))}</small></div>"
+        f"<div class='ready'><span>{_escape(_ui('VIDEO WORKFLOW', '视频流程'))}</span><b>{_escape(_ui('Assessment + gate + report', '评估 + 门控 + 报告'))}</b><small>{_escape(_ui('One assisted operation', '一次辅助操作完成'))}</small></div>"
+        f"<div class='bounded'><span>{_escape(_ui('CONTROL BOUNDARY', '控制边界'))}</span><b>{_escape(_ui('AI orchestrates; evidence remains authoritative', 'AI 负责编排；证据保持权威'))}</b><small>{_escape(_ui('Raw media is not retained', '不保留原始媒体'))}</small></div>"
         "</div>",
         unsafe_allow_html=True,
     )
 
-    with st.expander(_ui("Voice and image input", "语音与图片输入"), expanded=False, icon=":material/add_photo_alternate:"):
+    with st.expander(
+        _ui("Unified AI workspace", "统一 AI 工作台"),
+        expanded=True,
+        icon=":material/auto_awesome:",
+    ):
         st.caption(
             _ui(
-                "Review a transcript or image summary before sending it. Media can support workflow guidance only; it cannot measure vitals, identify a person, diagnose, or override the recorded gate.",
-                "发送前请核对转写或图片摘要。媒体只用于工作流引导，不能测量生命体征、识别人、诊断或覆盖系统已记录的门控结果。",
+                "Speak, attach an image, or submit a consented video here. The assistant can run the documented workflow and return its state, evidence, next action, and report without leaving this page. It cannot diagnose or override the recorded gate.",
+                "可在此说话、附加图片或提交已授权视频。助手会运行既定流程，并在本页返回状态、证据、下一步和报告；它不能诊断或覆盖已记录的门控结果。",
             )
         )
-        voice_tab, image_tab = st.tabs([_ui("Voice", "语音"), _ui("Image", "图片")])
+        voice_tab, image_tab, video_tab = st.tabs(
+            [
+                _ui("Voice to assistant", "语音直达助手"),
+                _ui("Image to assistant", "图片直达助手"),
+                _ui("Video full workflow", "视频全流程"),
+            ]
+        )
 
         with voice_tab:
             audio = st.audio_input(
@@ -1723,7 +1866,7 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
                 st.info(_ui(health.speech.details, "本地语音转写组件尚未就绪，仍可使用文字输入。"))
             if audio is not None:
                 if st.button(
-                    _ui("Transcribe locally", "本地转写"),
+                    _ui("Transcribe and ask AI", "转写并询问 AI"),
                     icon=":material/graphic_eq:",
                     type="primary",
                     key="vs_assistant_transcribe",
@@ -1738,6 +1881,19 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
                             )
                         st.session_state["vs_assistant_voice_result"] = result.model_dump(mode="json")
                         st.session_state["vs_assistant_voice_transcript"] = result.transcript
+                        store.log_access(
+                            action="assistant.transcribe",
+                            resource_type="transient_audio",
+                            details={
+                                "quality": result.quality,
+                                "raw_media_retained": False,
+                            },
+                        )
+                        if result.quality == "clear":
+                            _set_media_context(result.context.model_dump(mode="json"))
+                            _discard_voice_intake()
+                            st.session_state["vs_assistant_pending_prompt"] = result.transcript
+                            st.rerun()
                     except MediaProcessingError as error:
                         st.error(str(error))
 
@@ -1761,7 +1917,7 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
                     )
                 use_voice, clear_voice = st.columns([1, 0.42])
                 if use_voice.button(
-                    _ui("Use transcript as question", "将转写作为问题"),
+                    _ui("Confirm transcript and ask AI", "确认转写并询问 AI"),
                     type="primary",
                     icon=":material/send:",
                     width="stretch",
@@ -1800,7 +1956,7 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
                 preview_col, action_col = st.columns([1.2, 0.8])
                 preview_col.image(image_file, caption=image_file.name, width="stretch")
                 if action_col.button(
-                    _ui("Analyze safely", "安全分析"),
+                    _ui("Analyze and ask AI", "分析并询问 AI"),
                     icon=":material/image_search:",
                     type="primary",
                     width="stretch",
@@ -1816,6 +1972,20 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
                                 language=AssistantLanguage.zh if _is_zh() else AssistantLanguage.en,
                             )
                         st.session_state["vs_assistant_image_result"] = result.model_dump(mode="json")
+                        store.log_access(
+                            action="assistant.analyze_image",
+                            resource_type="transient_image",
+                            details={
+                                "degraded": result.degraded,
+                                "raw_media_retained": False,
+                            },
+                        )
+                        _set_media_context(result.context.model_dump(mode="json"))
+                        st.session_state["vs_assistant_pending_prompt"] = image_question.strip() or _ui(
+                            "Explain how this image relates to the VitalsSight workflow and what the user should do next.",
+                            "解释这张图片与 VitalsSight 工作流的关系，以及用户下一步应该做什么。",
+                        )
+                        st.rerun()
                     except MediaProcessingError as error:
                         st.error(str(error))
 
@@ -1867,6 +2037,181 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
                     on_click=_discard_image_intake,
                 )
 
+        with video_tab:
+            st.markdown(
+                f"<div class='vs-io-strip'><div><span>{_escape(_ui('INPUT', '输入'))}</span>"
+                f"<b>{_escape(_ui('Consented adult RGB face video + an optional instruction', '已授权成人 RGB 人脸视频 + 可选操作要求'))}</b></div>"
+                f"<div><span>{_escape(_ui('INLINE OUTPUT', '原位输出'))}</span>"
+                f"<b>{_escape(_ui('Quality, release/review/retake, explanation, actions and report', '质量、放行/复核/重采、解释、操作与报告'))}</b></div></div>",
+                unsafe_allow_html=True,
+            )
+            participants = store.list_participants()
+            selected_participant: dict[str, Any] | None = None
+            participant_col, purpose_col = st.columns([1.15, 0.85])
+            if participants:
+                participant_options = [item["participant_id"] for item in participants]
+                current_participant = str(identity.participant_id or st.session_state.get("vs_participant_id") or "")
+                participant_index = participant_options.index(current_participant) if current_participant in participant_options else 0
+                selected_participant_id = participant_col.selectbox(
+                    _ui("Participant context", "受试者上下文"),
+                    participant_options,
+                    index=participant_index,
+                    format_func=lambda value: next(
+                        f"{item['pseudonym']} · {item.get('study_id') or '-'}"
+                        for item in participants
+                        if item["participant_id"] == value
+                    ),
+                    key="vs_assistant_video_participant",
+                )
+                selected_participant = next(
+                    item for item in participants if item["participant_id"] == selected_participant_id
+                )
+            else:
+                participant_col.text_input(
+                    _ui("Participant context", "受试者上下文"),
+                    value=_ui("Local session (no linked record)", "本地会话（未关联记录）"),
+                    disabled=True,
+                    key="vs_assistant_video_participant_empty",
+                )
+            purpose = purpose_col.selectbox(
+                _ui("Research purpose", "研究用途"),
+                ["workflow_validation", "algorithm_evaluation", "research_demo"],
+                format_func=lambda value: {
+                    "workflow_validation": _ui("Workflow validation", "流程验证"),
+                    "algorithm_evaluation": _ui("Algorithm evaluation", "算法评估"),
+                    "research_demo": _ui("Research demonstration", "研究演示"),
+                }[value],
+                key="vs_assistant_video_purpose",
+            )
+            active_consent = (
+                store.active_consent(
+                    participant_id=selected_participant["participant_id"],
+                    purpose=purpose,
+                )
+                if selected_participant
+                else None
+            )
+            if identity.auth_mode != "disabled":
+                consent_recorded = active_consent is not None
+                st.checkbox(
+                    _ui("Active versioned consent covers this participant and purpose", "有效的版本化授权覆盖该受试者与用途"),
+                    value=consent_recorded,
+                    disabled=True,
+                    key=f"vs_assistant_video_governed_consent_{selected_participant['participant_id'] if selected_participant else 'none'}_{purpose}",
+                )
+                if active_consent:
+                    st.caption(
+                        f"{_ui('Consent version', '授权版本')}: {active_consent['document_version']} · "
+                        f"{_ui('Raw-video policy', '原始视频策略')}: delete after analysis"
+                    )
+                else:
+                    st.warning(_ui("No active consent covers this operation.", "没有有效授权覆盖本次操作。"))
+            else:
+                consent_recorded = st.checkbox(
+                    _ui(
+                        "I confirm this recording may be processed for the selected research purpose.",
+                        "我确认该视频可按照所选研究用途进行处理。",
+                    ),
+                    key="vs_assistant_video_consent",
+                )
+            video_file = st.file_uploader(
+                _ui("Upload an adult RGB face video", "上传成人 RGB 人脸视频"),
+                type=["mp4", "mov", "avi", "mkv", "m4v"],
+                key=f"vs_assistant_video_{st.session_state['vs_assistant_video_widget_version']}",
+                help=_ui(
+                    "The assistant invokes the same deterministic assessment used by the assessment workspace. The raw file is deleted after analysis.",
+                    "助手调用与评估页面相同的确定性流程；原始文件在分析后删除。",
+                ),
+            )
+            instruction = st.text_area(
+                _ui("What should the assistant return?", "希望助手返回什么？"),
+                value=_ui(
+                    "Run the full workflow, explain the output state and evidence, then give the next action and report.",
+                    "运行完整流程，解释输出状态和证据，然后给出下一步操作与报告。",
+                ),
+                height=82,
+                max_chars=800,
+                key="vs_assistant_video_instruction",
+            )
+            run_col, clear_col = st.columns([1, 0.34])
+            if run_col.button(
+                _ui("Run full workflow with AI", "由 AI 运行完整流程"),
+                type="primary",
+                icon=":material/play_circle:",
+                width="stretch",
+                key="vs_assistant_run_video_workflow",
+            ):
+                if identity.auth_mode != "disabled" and selected_participant is None:
+                    st.warning(_ui("Select an authorized participant first.", "请先选择已授权受试者。"))
+                elif not consent_recorded:
+                    st.warning(_ui("Consent is required before media processing.", "处理媒体前必须确认授权。"))
+                elif video_file is None:
+                    st.warning(_ui("Upload a video before running the workflow.", "运行流程前请先上传视频。"))
+                else:
+                    try:
+                        result = _process_upload(
+                            video_file,
+                            purpose=purpose,
+                            retention="delete_after_analysis",
+                        )
+                        result["source_name"] = "".join(
+                            character if character.isalnum() or character in "._-" else "_"
+                            for character in video_file.name
+                        )
+                        if selected_participant:
+                            result["participant_id"] = selected_participant["participant_id"]
+                            result["study_id"] = selected_participant.get("study_id") or ""
+                        result["consent"] = {
+                            "recorded": True,
+                            "purpose": purpose,
+                            "document_version": (
+                                active_consent["document_version"]
+                                if active_consent
+                                else "local-session-affirmation"
+                            ),
+                        }
+                        result = ensure_output_contract(result)
+                        store.upsert_case(result, actor=identity.actor)
+                        store.log_access(
+                            action="assistant.workflow.video",
+                            resource_type="case",
+                            resource_id=result["case_id"],
+                            details={
+                                "decision": result["decision"],
+                                "raw_video_retained": False,
+                                "report_approval_status": "unversioned",
+                            },
+                        )
+                        report = _assistant_report_payload(store, identity, result)
+                        st.session_state["vs_assistant_workflow_result"] = result
+                        st.session_state["vs_assistant_workflow_report"] = report
+                        st.session_state["vs_focus_case"] = result["case_id"]
+                        st.session_state["vs_assistant_case"] = result["case_id"]
+                        st.session_state["vs_assistant_pending_prompt"] = instruction.strip() or _ui(
+                            "Explain this workflow result and the next action.",
+                            "解释本次流程结果与下一步操作。",
+                        )
+                        st.session_state["vs_assistant_video_widget_version"] += 1
+                        st.rerun()
+                    except Exception as error:
+                        st.error(
+                            _ui(
+                                "The workflow could not be completed. No HR was published.",
+                                "本次流程未能完成，系统未发布心率。",
+                            )
+                        )
+                        st.caption(
+                            f"{_ui('Technical detail', '技术信息')}: "
+                            f"{type(error).__name__}: {sanitize_report_value(str(error)[:180])}"
+                        )
+            clear_col.button(
+                _ui("Clear", "清除"),
+                icon=":material/ink_eraser:",
+                width="stretch",
+                key="vs_assistant_clear_video_workflow",
+                on_click=_discard_video_workflow,
+            )
+
     attached = st.session_state.get("vs_assistant_media_contexts", [])
     if attached:
         labels = ", ".join(
@@ -1883,6 +2228,11 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
         ):
             st.session_state["vs_assistant_media_contexts"] = []
             st.rerun()
+
+    workflow_result = st.session_state.get("vs_assistant_workflow_result")
+    workflow_report = st.session_state.get("vs_assistant_workflow_report")
+    if workflow_result and workflow_report:
+        _assistant_workflow_result_panel(workflow_result, workflow_report)
 
 
 def _assistant(store: ConsoleStore) -> None:
@@ -1918,7 +2268,7 @@ def _assistant(store: ConsoleStore) -> None:
         f"<b>{_escape(_ui('The assistant explains and navigates; it cannot override the gate.', '助手负责解释与导航，不能覆盖门控决策。'))}</b></div></div>",
         unsafe_allow_html=True,
     )
-    _multimodal_intake(multimodal)
+    _multimodal_intake(multimodal, store, identity)
 
     cases = store.list_cases()
     case_lookup = {str(case["case_id"]): case for case in cases}
@@ -2238,7 +2588,10 @@ def _integrations(store: ConsoleStore) -> None:
                 ["GET", "/api/v1/assistant/multimodal/health", _ui("Image and speech capability health", "图片与语音能力状态")],
                 ["POST", "/api/v1/assistant/chat", _ui("Evidence-bounded assistant response", "基于证据的助手回答")],
                 ["POST", "/api/v1/assistant/transcribe", _ui("Transient local speech transcription", "临时本地语音转写")],
+                ["POST", "/api/v1/assistant/voice-chat", _ui("One-call voice transcription and assistant reply", "一次调用完成语音转写与助手回答")],
                 ["POST", "/api/v1/assistant/analyze-image", _ui("Transient bounded image analysis", "临时受约束图片分析")],
+                ["POST", "/api/v1/assistant/image-chat", _ui("One-call image analysis and assistant reply", "一次调用完成图片分析与助手回答")],
+                ["POST", "/api/v1/assistant/workflows/video", _ui("Video assessment, explanation and inline report", "视频评估、解释与原位报告")],
                 ["POST", "/api/v1/assistant/confirm", _ui("Explicitly confirm a pending review update", "明确确认待处理复核更新")],
                 ["POST", "/api/v1/assistant/reject", _ui("Reject a pending review update", "拒绝待处理复核更新")],
             ],
@@ -3036,7 +3389,7 @@ def _inject_css() -> None:
         .vs-assistant-contract > div { background:var(--paper); padding:0.7rem 0.86rem; }
         .vs-assistant-contract span { display:block; color:var(--primary); font-size:0.64rem; font-weight:800; }
         .vs-assistant-contract b { display:block; color:var(--ink-soft); font-size:0.76rem; line-height:1.45; margin-top:0.18rem; }
-        .vs-modalities { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0.6rem; margin:0.2rem 0 0.85rem; }
+        .vs-modalities { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:0.6rem; margin:0.2rem 0 0.85rem; }
         .vs-modalities > div { position:relative; min-height:74px; border:1px solid var(--line); border-top:3px solid var(--primary); background:#fff; border-radius:7px; padding:0.62rem 0.72rem; box-shadow:0 3px 12px rgba(32,58,70,0.03); }
         .vs-modalities > div.ready { border-top-color:var(--teal); }
         .vs-modalities > div.degraded { border-top-color:var(--review); }
@@ -3045,6 +3398,10 @@ def _inject_css() -> None:
         .vs-modalities span { color:var(--muted); font-size:0.61rem; font-weight:800; letter-spacing:0; }
         .vs-modalities b { color:var(--ink); font-size:0.78rem; margin-top:0.18rem; line-height:1.3; }
         .vs-modalities small { color:var(--muted); font-size:0.66rem; margin-top:0.14rem; overflow-wrap:anywhere; }
+        .vs-assistant-workflow-head { border:1px solid var(--line-strong); border-left:5px solid var(--teal); border-radius:7px; background:linear-gradient(90deg,var(--teal-soft),#fff 56%); padding:0.82rem 0.95rem; margin:1rem 0 0.6rem; box-shadow:var(--shadow-soft); }
+        .vs-assistant-workflow-head span { color:var(--teal); font-size:0.64rem; font-weight:800; }
+        .vs-assistant-workflow-head h3 { margin:0.15rem 0 0.12rem; color:var(--ink); font-size:1rem !important; }
+        .vs-assistant-workflow-head p { margin:0; color:var(--muted); font-size:0.74rem; line-height:1.45; }
         [data-testid="stChatMessage"] { border:1px solid var(--line); border-radius:7px; background:var(--paper); padding:0.25rem 0.55rem; box-shadow:0 3px 12px rgba(32,58,70,0.035); }
         [data-testid="stChatMessage"] + [data-testid="stChatMessage"] { margin-top:0.55rem; }
         [data-testid="stChatInput"] { border-color:var(--line-strong); }

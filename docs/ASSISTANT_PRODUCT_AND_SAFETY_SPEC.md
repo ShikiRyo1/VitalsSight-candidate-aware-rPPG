@@ -2,7 +2,7 @@
 
 ## Intended function
 
-The assistant is a local conversational and workflow-orchestration layer over the existing deterministic VitalsSight evidence pipeline. It accepts typed questions, locally transcribed voice, and bounded image context; explains recorded quality, candidate, policy, review, and report evidence; retrieves versioned local guidance; navigates the product; and can prepare a review update for explicit confirmation. It does not estimate HR from media, alter candidate selection, override release/review/retake, identify a person, diagnose, prescribe, or provide emergency guidance.
+The assistant is a local conversational and controlled workflow-orchestration layer over the existing deterministic VitalsSight evidence pipeline. It accepts typed questions, locally transcribed voice, bounded image context, and consented video workflow requests; explains recorded quality, candidate, policy, review, and report evidence; retrieves versioned local guidance; returns assessment and report outputs in one interface; navigates the product; and can prepare a review update for explicit confirmation. It does not estimate HR conversationally, alter candidate selection, override release/review/retake, identify a person, diagnose, prescribe, or provide emergency guidance.
 
 The signal pipeline and stored case are the source of truth. The language model is optional: measurement, reports, review, export, and the REST API remain available when the model is offline.
 
@@ -11,11 +11,12 @@ The assistant provides post-inference consistency checks over bounded recorded e
 ## Architecture and trust boundary
 
 ```text
-Streamlit text, microphone, image / REST request
+Streamlit text, microphone, image, consented video / REST request
         |
 transient media intake
         |-- faster-whisper: audio -> editable transcript
         |-- Qwen3-VL instruct: normalized image -> bounded JSON context
+        |-- deterministic video service -> quality, candidate evidence and output state
         |-- EXIF removal, size/type limits, injection filtering
         |
 input safety and role policy
@@ -32,7 +33,7 @@ deterministic response assembly and post-validation
 Pydantic response + evidence IDs + audit digest
 ```
 
-The model cannot access SQLite, the filesystem, raw video, raw voice, original images, environment variables, or network resources directly. It receives only bounded tool results and sanitized media context. `prepare_review_update` creates an expiring pending record; a separate confirmation call performs the update through `ConsoleStore.update_review` and writes the existing audit event.
+The model cannot access SQLite, the filesystem, raw video, raw voice, original images, environment variables, or network resources directly. A typed orchestration endpoint invokes only the existing consent, assessment, report, and audit services; the model receives the resulting bounded case/report evidence after processing. `prepare_review_update` creates an expiring pending record; a separate confirmation call performs the update through `ConsoleStore.update_review` and writes the existing audit event.
 
 ## Roles
 
@@ -82,7 +83,7 @@ No tool deletes video, changes HR, changes the output state, rewrites policy, do
 8. Provider timeout or malformed output activates deterministic evidence guidance; it does not fail the product workflow.
 9. Image-derived text is untrusted data. Prompt-injection, diagnosis, emergency, or policy-bypass text is removed before the main assistant receives it.
 10. Media context is marked non-authoritative and cannot ground a vital-sign number, identity, diagnosis, or output-state claim.
-11. A speech transcript remains editable and must be reviewed by the user before it is sent as a question.
+11. A clear speech transcript may enter read-only chat directly; an uncertain transcript remains editable and must be confirmed before it can be sent. Neither path can execute a state change without the separate confirmation contract.
 
 ## Threat model
 

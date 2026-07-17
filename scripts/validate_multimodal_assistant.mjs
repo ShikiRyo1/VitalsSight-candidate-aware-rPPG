@@ -11,10 +11,10 @@ try {
   );
 }
 
-const [baseUrl, apiUrl, imagePath, outputRoot, audioPath] = process.argv.slice(2);
+const [baseUrl, apiUrl, imagePath, outputRoot, audioPath, videoPath] = process.argv.slice(2);
 if (!baseUrl || !apiUrl || !imagePath || !outputRoot) {
   throw new Error(
-    "Usage: validate_multimodal_assistant.mjs BASE_URL API_URL IMAGE OUTPUT_ROOT [AUDIO]",
+    "Usage: validate_multimodal_assistant.mjs BASE_URL API_URL IMAGE OUTPUT_ROOT [AUDIO] [VIDEO]",
   );
 }
 const expectedAssistantModel = process.env.VITALSSIGHT_EXPECTED_ASSISTANT_MODEL || "qwen3.6:35b";
@@ -60,6 +60,15 @@ async function waitForStreamlitIdle(page, timeout = 180000) {
     { timeout },
   );
   await page.waitForTimeout(400);
+}
+
+async function waitForCountIncrease(locator, before, timeout = 360000) {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    if ((await locator.count()) > before) return locator.nth(before);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`Expected locator count to exceed ${before} within ${timeout} ms.`);
 }
 
 async function openEnglish(page) {
@@ -108,8 +117,19 @@ async function findImageFileInput(page) {
   throw new Error(`No image file input found; observed ${count} file inputs.`);
 }
 
+async function findVideoFileInput(page) {
+  const inputs = page.locator('input[type="file"]');
+  const count = await inputs.count();
+  for (let index = 0; index < count; index += 1) {
+    const input = inputs.nth(index);
+    const accept = String((await input.getAttribute("accept")) || "").toLowerCase();
+    if (accept.includes("video") || accept.includes(".mp4") || accept.includes(".avi")) return input;
+  }
+  throw new Error(`No video file input found; observed ${count} file inputs.`);
+}
+
 async function ensureExpanderOpen(page) {
-  const label = page.getByText("Voice and image input", { exact: true }).first();
+  const label = page.getByText("Unified AI workspace", { exact: true }).first();
   await label.waitFor({ state: "visible", timeout: 30000 });
   const details = label.locator("xpath=ancestor::details");
   if (await details.count()) {
@@ -118,7 +138,7 @@ async function ensureExpanderOpen(page) {
       await label.click();
       await page.waitForTimeout(500);
     }
-    throw new Error("Voice and image input expander did not remain open.");
+    throw new Error("Unified AI workspace expander did not remain open.");
   }
   await label.click();
   await page.waitForTimeout(500);
@@ -128,7 +148,7 @@ async function ensureVoicePanelOpen(page) {
   const voiceControl = page.getByText("Record a question or instruction", { exact: true }).first();
   for (let attempt = 0; attempt < 5; attempt += 1) {
     await ensureExpanderOpen(page);
-    const voiceTab = page.getByRole("tab", { name: "Voice", exact: true });
+    const voiceTab = page.getByRole("tab", { name: "Voice to assistant", exact: true });
     if (await voiceTab.isVisible().catch(() => false)) await voiceTab.click();
     await page.waitForTimeout(500);
     if (await voiceControl.isVisible().catch(() => false)) return voiceControl;
@@ -226,11 +246,15 @@ try {
   let text = await bodyText(page);
   check("assistant reports voice readiness", text.includes("Voice ready"), text.slice(0, 2400));
   check("assistant reports image readiness", text.includes("Image ready"), text.slice(0, 2400));
-  check("assistant exposes transient media policy", text.includes("Transient, non-authoritative context"), text.slice(0, 2400));
+  check("assistant exposes controlled orchestration boundary", text.includes("AI orchestrates; evidence remains authoritative"), text.slice(0, 2400));
 
   const voiceControl = await ensureVoicePanelOpen(page);
   check("voice recorder control is present", true);
   if (audioPath) {
+    const userMessages = page.getByLabel("Chat message from user");
+    const assistantMessages = page.getByLabel("Chat message from assistant");
+    const priorUserCount = await userMessages.count();
+    const priorAssistantCount = await assistantMessages.count();
     const recordButton = page.getByRole("button", { name: "Record", exact: true });
     await recordButton.waitFor({ state: "visible", timeout: 15000 });
     await recordButton.click();
@@ -240,37 +264,42 @@ try {
     await stopButton.click();
     await waitForStreamlitIdle(page);
     await ensureVoicePanelOpen(page);
-    const transcribeButton = page.getByRole("button", { name: /Transcribe locally/ });
+    const transcribeButton = page.getByRole("button", { name: /Transcribe and ask AI/ });
     await transcribeButton.waitFor({ state: "visible", timeout: 30000 });
     await transcribeButton.click();
     const transcript = page.getByRole("textbox", { name: "Review and edit transcript", exact: true });
-    await transcript.waitFor({ state: "visible", timeout: 180000 });
-    check("browser microphone recording is transcribed", Boolean((await transcript.inputValue()).trim()));
-    const voicePanel = page.getByRole("tabpanel", { name: "Voice", exact: true });
-    const clearRecording = voicePanel.getByRole("button", { name: "Clear recording", exact: true });
-    check("recording can be cleared by the user", await clearRecording.isVisible());
-    await clearRecording.click();
-    await waitForStreamlitIdle(page);
-    await ensureVoicePanelOpen(page);
-    const discardTranscript = page.getByRole("button", { name: /Discard transcript/ });
-    await discardTranscript.waitFor({ state: "visible", timeout: 30000 });
-    await discardTranscript.click();
-    await waitForStreamlitIdle(page);
-    check("derived transcript can be discarded independently", true);
+    const voiceUserMessage = userMessages.nth(priorUserCount);
+    await Promise.race([
+      transcript.waitFor({ state: "visible", timeout: 180000 }),
+      voiceUserMessage.waitFor({ state: "visible", timeout: 180000 }),
+    ]);
+    if (await transcript.isVisible().catch(() => false)) {
+      check("uncertain browser transcript is editable", Boolean((await transcript.inputValue()).trim()));
+      await page.getByRole("button", { name: /Confirm transcript and ask AI/ }).click();
+    }
+    await waitForCountIncrease(userMessages, priorUserCount, 180000);
+    check("browser microphone recording reaches the assistant", Boolean((await voiceUserMessage.innerText()).trim()));
+    await waitForCountIncrease(assistantMessages, priorAssistantCount, 360000);
     await ensureExpanderOpen(page);
   }
-  await page.getByRole("tab", { name: "Image", exact: true }).click();
+  await page.getByRole("tab", { name: "Image to assistant", exact: true }).click();
   const imageInput = await findImageFileInput(page);
   await imageInput.setInputFiles(path.resolve(imagePath));
   await waitForStreamlitIdle(page);
   await ensureExpanderOpen(page);
-  await page.getByRole("tab", { name: "Image", exact: true }).click();
+  await page.getByRole("tab", { name: "Image to assistant", exact: true }).click();
   const focusInput = page.getByRole("textbox", { name: "What should the assistant focus on?", exact: true });
   await focusInput.fill("Describe this authorized research image and what the user should do next without inferring identity or a vital sign.");
-  const analyzeButton = page.getByRole("button", { name: /Analyze safely/ });
+  const imageUserMessages = page.getByLabel("Chat message from user");
+  const imageAssistantMessages = page.getByLabel("Chat message from assistant");
+  const priorImageUserCount = await imageUserMessages.count();
+  const priorImageAssistantCount = await imageAssistantMessages.count();
+  const analyzeButton = page.getByRole("button", { name: /Analyze and ask AI/ });
   await analyzeButton.waitFor({ state: "visible", timeout: 30000 });
   await analyzeButton.click();
-  await page.getByText("Visual summary", { exact: true }).waitFor({ state: "attached", timeout: 180000 });
+  const userMessage = await waitForCountIncrease(imageUserMessages, priorImageUserCount, 180000);
+  await userMessage.getByText("Transient context: image context", { exact: true }).waitFor({ state: "visible", timeout: 30000 });
+  const assistantMessage = await waitForCountIncrease(imageAssistantMessages, priorImageAssistantCount, 360000);
   await ensureExpanderOpen(page);
   await page.getByText("Visual summary", { exact: true }).waitFor({ state: "visible", timeout: 30000 });
   text = await bodyText(page);
@@ -278,17 +307,6 @@ try {
   check("browser explains raw-media retention", text.includes("Raw media is not retained"), text.slice(0, 2200));
   await page.screenshot({ path: path.join(runRoot, "multimodal_desktop_analysis.png"), fullPage: true });
 
-  await ensureExpanderOpen(page);
-  const askWithImage = page.getByRole("button", { name: /Ask with this image/ });
-  await askWithImage.waitFor({ state: "visible", timeout: 30000 });
-  await askWithImage.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
-  await page.waitForTimeout(500);
-  await askWithImage.click();
-  const userMessage = page.getByLabel("Chat message from user").last();
-  await userMessage.waitFor({ state: "visible", timeout: 180000 });
-  await userMessage.getByText("Transient context: image context", { exact: true }).waitFor({ state: "visible", timeout: 30000 });
-  const assistantMessage = page.getByLabel("Chat message from assistant").last();
-  await assistantMessage.waitFor({ state: "visible", timeout: 360000 });
   await assistantMessage
     .getByText(new RegExp(`Local model.*ollama.*${escapedAssistantModel}`, "i"))
     .waitFor({ state: "visible", timeout: 300000 });
@@ -296,6 +314,39 @@ try {
   check("image context reaches the conversational assistant", /image|screen|workflow/i.test(answer), answer);
   check("assistant does not invent a vital-sign value", !/\b\d{2,3}(?:\.\d+)?\s*BPM\b/i.test(answer), answer);
   await page.screenshot({ path: path.join(runRoot, "multimodal_desktop_answer.png"), fullPage: true });
+
+  if (videoPath) {
+    await ensureExpanderOpen(page);
+    await page.getByRole("tab", { name: "Video full workflow", exact: true }).click();
+    const consent = page.getByRole("checkbox", {
+      name: "I confirm this recording may be processed for the selected research purpose.",
+      exact: true,
+    });
+    if (!(await consent.isChecked())) {
+      await consent.check({ force: true });
+      await waitForStreamlitIdle(page);
+      await ensureExpanderOpen(page);
+      await page.getByRole("tab", { name: "Video full workflow", exact: true }).click();
+    }
+    const videoInput = await findVideoFileInput(page);
+    await videoInput.setInputFiles(path.resolve(videoPath));
+    const videoInstruction = page.getByRole("textbox", { name: "What should the assistant return?", exact: true });
+    await videoInstruction.fill("Explain the output state, evidence, next action and report boundary.");
+    const videoAssistantMessages = page.getByLabel("Chat message from assistant");
+    const priorVideoAssistantCount = await videoAssistantMessages.count();
+    await page.getByRole("button", { name: /Run full workflow with AI/ }).click();
+    await page.getByText("WORKFLOW COMPLETE", { exact: true }).waitFor({ state: "visible", timeout: 360000 });
+    const videoAssistant = await waitForCountIncrease(videoAssistantMessages, priorVideoAssistantCount, 360000);
+    const videoAnswer = await videoAssistant.innerText();
+    text = await bodyText(page);
+    check("video workflow returns an inline evidence report", text.includes("Inline evidence report"), text.slice(-5000));
+    check("video workflow exposes report exports", /PDF[\s\S]*JSON[\s\S]*Markdown[\s\S]*CSV[\s\S]*FHIR/.test(text), text.slice(-5000));
+    check("video workflow states raw video is not retained", text.includes("Raw video retained: no"), text.slice(-5000));
+    if (/\bReview\b|\bRetake\b/.test(text)) {
+      check("non-release video explanation withholds BPM", !/\b\d{2,3}(?:\.\d+)?\s*BPM\b/i.test(videoAnswer), videoAnswer);
+    }
+    await page.screenshot({ path: path.join(runRoot, "unified_video_workflow.png"), fullPage: true });
+  }
   check("desktop viewport has no horizontal overflow", await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2));
 
   mobile = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -319,6 +370,7 @@ try {
     api_url: apiUrl,
     image_fixture: imageName,
     audio_fixture: audioPath ? path.basename(audioPath) : null,
+    video_fixture: videoPath ? path.basename(videoPath) : null,
     multimodal_health: multimodalHealth,
     checks,
     console_errors: consoleErrors,
