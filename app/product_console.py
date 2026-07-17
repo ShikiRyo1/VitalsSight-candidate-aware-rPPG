@@ -40,8 +40,29 @@ from src.product.console_service import (
     sanitize_report_value,
     video_preflight,
 )
-from src.product.console_store import ConsoleStore
+from src.product.console_store import ConsoleStore, ScopedConsoleStore
 from src.product.build_identity import path_fingerprint, source_build_identity
+from src.product.identity import (
+    IdentityContext,
+    ROLE_AUDITOR,
+    ROLE_OPERATOR,
+    ROLE_ORG_ADMIN,
+    ROLE_PARTICIPANT,
+    ROLE_RESEARCHER,
+    ROLE_REVIEWER,
+    identity_from_claims,
+    local_identity,
+    organizations_from_claims,
+)
+from src.product.reporting import (
+    build_fhir_bundle,
+    build_longitudinal_context,
+    enrich_report_payload,
+    report_for_audience,
+    report_content_sha256,
+    report_version_sha256,
+)
+from src.product.report_narrative import EvidenceBoundedReportNarrator
 
 
 DB_PATH = Path(os.getenv("VITALSSIGHT_DB_PATH", PROJECT / "runtime" / "vitalsight_console.db"))
@@ -53,6 +74,7 @@ PROTOCOL_SUMMARY = PROJECT / "reproducibility" / "protocol_summary.json"
 SECTIONS = [
     "Overview",
     "New assessment",
+    "Participants",
     "Cases",
     "Review queue",
     "Reports",
@@ -65,6 +87,7 @@ SECTIONS = [
 ZH = {
     "Overview": "总览",
     "New assessment": "新建评估",
+    "Participants": "受试者",
     "Cases": "案例",
     "Review queue": "复核队列",
     "Reports": "报告中心",
@@ -84,12 +107,18 @@ def run() -> None:
     )
     _inject_css()
     _init_state()
+    identity = _resolve_streamlit_identity()
+    st.session_state["vs_identity"] = identity
+    st.session_state["vs_operator"] = identity.actor
+    available_sections = _sections_for_identity(identity)
     pending_section = st.session_state.pop("vs_pending_section", "")
-    if pending_section in SECTIONS:
+    if pending_section in available_sections:
         st.session_state["vs_section"] = pending_section
         st.session_state["vs_section_radio"] = pending_section
-    store = _store()
-    _seed_if_empty(store)
+    if st.session_state.get("vs_section_radio") not in available_sections:
+        st.session_state["vs_section_radio"] = "Overview"
+    store = _store(identity)
+    _seed_if_empty(store, identity)
 
     language = st.sidebar.segmented_control(
         "Language / 语言",
@@ -101,13 +130,18 @@ def run() -> None:
     st.sidebar.markdown("<div class='vs-brand'><span>VS</span><b>VitalsSight</b></div>", unsafe_allow_html=True)
     st.sidebar.caption(_ui("Evidence operations console", "证据运营控制台"))
     st.sidebar.markdown(
+        f"<div class='vs-identity-card'><b>{_escape(identity.display_name)}</b>"
+        f"<span>{_escape(identity.organization_id)} · {_escape(identity.primary_role or 'read-only')}</span></div>",
+        unsafe_allow_html=True,
+    )
+    st.sidebar.markdown(
         f"<div class='vs-side-status'><i></i><div><b>{_escape(_ui('Workspace ready', '工作区就绪'))}</b>"
         f"<span>{_escape(_ui('Evidence store connected', '证据存储已连接'))}</span></div></div>",
         unsafe_allow_html=True,
     )
     section = st.sidebar.radio(
         _ui("Workspace", "工作区"),
-        SECTIONS,
+        available_sections,
         format_func=lambda item: ZH[item] if _is_zh() else item,
         label_visibility="collapsed",
         key="vs_section_radio",
@@ -132,6 +166,13 @@ def run() -> None:
         f"<div class='vs-boundary-small'>{_escape(_ui('No diagnosis, emergency alert, or autonomous clinical release.', '不用于诊断、急救告警或临床自主放行。'))}</div>",
         unsafe_allow_html=True,
     )
+    if identity.auth_mode != "disabled" and st.sidebar.button(
+        _ui("Sign out", "退出登录"),
+        icon=":material/logout:",
+        width="stretch",
+        key="vs_logout",
+    ):
+        st.logout()
     build = source_build_identity()
     st.sidebar.caption(
         f"Build {str(build['commit'])[:12]} · Tree {str(build['tree'])[:12]} · "
@@ -158,6 +199,8 @@ def run() -> None:
         _overview(store)
     elif section == "New assessment":
         _new_assessment(store)
+    elif section == "Participants":
+        _participants(store)
     elif section == "Cases":
         _cases(store)
     elif section == "Review queue":
@@ -185,6 +228,8 @@ def _init_state() -> None:
         "vs_consent": False,
         "vs_retention": "delete_after_analysis",
         "vs_source": "stable",
+        "vs_participant_id": "",
+        "vs_consent_document_version": "",
         "vs_focus_case": "",
         "vs_preflight": None,
         "vs_upload_path": "",
@@ -216,13 +261,16 @@ def _init_state() -> None:
 
 
 @st.cache_resource(show_spinner=False)
-def _store() -> ConsoleStore:
+def _base_store() -> ConsoleStore:
     return ConsoleStore(DB_PATH)
 
 
-@st.cache_resource(show_spinner=False)
-def _assistant_engine() -> AssistantOrchestrator:
-    return AssistantOrchestrator(ConsoleStore(DB_PATH), db_path=DB_PATH)
+def _store(identity: IdentityContext) -> ScopedConsoleStore:
+    return ScopedConsoleStore(_base_store(), identity)
+
+
+def _assistant_engine(store: ScopedConsoleStore) -> AssistantOrchestrator:
+    return AssistantOrchestrator(store, db_path=DB_PATH)
 
 
 @st.cache_resource(show_spinner=False)
@@ -230,11 +278,104 @@ def _multimodal_engine() -> MultimodalAssistantService:
     return MultimodalAssistantService()
 
 
-def _seed_if_empty(store: ConsoleStore) -> None:
+def _seed_if_empty(store: ScopedConsoleStore, identity: IdentityContext) -> None:
+    if identity.auth_mode != "disabled":
+        return
     if store.list_cases():
         return
     for case in make_demo_cases():
         store.upsert_case(case, actor="demo-seed")
+
+
+def _resolve_streamlit_identity() -> IdentityContext:
+    auth_mode = os.getenv("VITALSSIGHT_AUTH_MODE", "disabled").strip().lower()
+    if auth_mode not in {"disabled", "required"}:
+        raise ValueError("VITALSSIGHT_AUTH_MODE must be disabled or required")
+    if auth_mode == "disabled":
+        return local_identity(display_name=st.session_state.get("vs_operator", "Research operator"))
+    if not bool(getattr(st.user, "is_logged_in", False)):
+        st.markdown("## VitalsSight")
+        st.caption("Authorized controlled-trial access is required.")
+        provider = os.getenv("VITALSSIGHT_STREAMLIT_AUTH_PROVIDER", "").strip()
+        if st.button("Sign in", type="primary", icon=":material/login:"):
+            try:
+                st.login(provider) if provider else st.login()
+            except Exception as error:
+                st.error(f"OIDC login is not configured: {error}")
+        st.stop()
+    try:
+        claims = dict(st.user)
+    except (TypeError, ValueError):
+        claims = {
+            key: getattr(st.user, key)
+            for key in (
+                "sub",
+                "email",
+                "name",
+                "preferred_username",
+                "organization",
+                "organization_id",
+                "realm_access",
+                "resource_access",
+                "roles",
+                "participant_id",
+            )
+            if getattr(st.user, key, None) is not None
+        }
+    organizations = sorted(organizations_from_claims(claims))
+    if not organizations:
+        fallback_org = os.getenv("VITALSSIGHT_DEFAULT_ORGANIZATION", "").strip()
+        if fallback_org:
+            organizations = [fallback_org]
+    if not organizations:
+        st.error("The authenticated identity has no authorized organization context.")
+        st.stop()
+    organization_id = (
+        st.sidebar.selectbox("Organization", organizations, key="vs_organization")
+        if len(organizations) > 1
+        else organizations[0]
+    )
+    identity = identity_from_claims(
+        claims,
+        organization_id=organization_id,
+        auth_mode="oidc",
+        client_id=os.getenv("VITALSSIGHT_AUTH_CLIENT_ID", "").strip(),
+    )
+    if not identity.roles:
+        st.error("The authenticated identity has no VitalsSight role.")
+        st.stop()
+    return identity
+
+
+def _active_identity() -> IdentityContext:
+    identity = st.session_state.get("vs_identity")
+    return identity if isinstance(identity, IdentityContext) else local_identity()
+
+
+def _can(*roles: str) -> bool:
+    return _active_identity().has_any_role(*roles)
+
+
+def _sections_for_identity(identity: IdentityContext) -> list[str]:
+    if identity.auth_mode == "disabled" or identity.has_any_role(ROLE_ORG_ADMIN):
+        return list(SECTIONS)
+    sections = ["Overview"]
+    if identity.has_any_role(ROLE_PARTICIPANT, ROLE_OPERATOR, ROLE_REVIEWER):
+        sections.append("New assessment")
+    if identity.has_any_role(ROLE_OPERATOR, ROLE_REVIEWER, ROLE_RESEARCHER, ROLE_AUDITOR):
+        sections.append("Participants")
+    sections.append("Cases")
+    if identity.has_any_role(ROLE_OPERATOR, ROLE_REVIEWER):
+        sections.append("Review queue")
+    sections.append("Reports")
+    if not identity.has_any_role(ROLE_AUDITOR):
+        sections.append("AI assistant")
+    if identity.has_any_role(ROLE_RESEARCHER, ROLE_AUDITOR, ROLE_REVIEWER):
+        sections.append("Evidence")
+    if identity.has_any_role(ROLE_OPERATOR, ROLE_REVIEWER, ROLE_RESEARCHER, ROLE_AUDITOR):
+        sections.append("Integrations")
+    sections.append("Help & settings")
+    return sections
 
 
 def _is_zh() -> bool:
@@ -278,6 +419,7 @@ def _header(section: str) -> None:
     subtitle = {
         "Overview": _ui("Operational state, quality, and work requiring attention", "查看运行状态、采集质量与待处理工作"),
         "New assessment": _ui("Consent, guided capture, quality qualification, and evidence output", "完成授权、引导采集、质量检查与证据输出"),
+        "Participants": _ui("Pseudonymous enrollment, purpose-specific consent, and withdrawal status", "管理去标识受试者、用途限定授权与撤回状态"),
         "Cases": _ui("Searchable evidence registry with decision-level provenance", "可搜索的证据登记与决策级溯源"),
         "Review queue": _ui("Assign, document, and close review or retake work", "分派、记录并闭环复核或重采任务"),
         "Reports": _ui("Versioned evidence reports with policy attribution", "生成带策略归因和版本信息的证据报告"),
@@ -326,6 +468,7 @@ def _header(section: str) -> None:
 
 
 def _overview(store: ConsoleStore) -> None:
+    available_sections = _sections_for_identity(_active_identity())
     cases = store.list_cases()
     reviews = store.list_reviews(include_closed=False)
     releases = sum(case.get("decision") == "release" for case in cases)
@@ -341,10 +484,10 @@ def _overview(store: ConsoleStore) -> None:
         unsafe_allow_html=True,
     )
     quick_a, quick_b, quick_c = st.columns([1, 1, 1])
-    if quick_a.button(_ui("Start guided assessment", "开始引导式评估"), type="primary", icon=":material/add_circle:", width="stretch"):
+    if quick_a.button(_ui("Start guided assessment", "开始引导式评估"), type="primary", icon=":material/add_circle:", width="stretch", disabled="New assessment" not in available_sections):
         _set_flash(_ui("Assessment opened. Start with purpose and consent.", "评估已打开，请先确认用途与授权。"), "info")
         _start_assessment()
-    if quick_b.button(_ui("Continue review work", "继续复核工作"), icon=":material/fact_check:", width="stretch"):
+    if quick_b.button(_ui("Continue review work", "继续复核工作"), icon=":material/fact_check:", width="stretch", disabled="Review queue" not in available_sections):
         _set_flash(_ui("Review queue opened. Select the highest-priority item first.", "已打开复核队列，请优先处理高优先级项目。"), "info")
         _go("Review queue")
     if quick_c.button(_ui("Learn the full workflow", "学习完整流程"), icon=":material/menu_book:", width="stretch"):
@@ -374,10 +517,10 @@ def _overview(store: ConsoleStore) -> None:
             )
         st.dataframe(pd.DataFrame(status_rows), hide_index=True, width="stretch", height=325)
         c1, c2 = st.columns(2)
-        if c1.button(_ui("Start new assessment", "开始新评估"), type="primary", icon=":material/add_circle:", width="stretch"):
+        if c1.button(_ui("Start new assessment", "开始新评估"), type="primary", icon=":material/add_circle:", width="stretch", disabled="New assessment" not in available_sections):
             _set_flash(_ui("Assessment opened. Start with purpose and consent.", "评估已打开，请先确认用途与授权。"), "info")
             _start_assessment()
-        if c2.button(_ui("Open review queue", "打开复核队列"), icon=":material/fact_check:", width="stretch"):
+        if c2.button(_ui("Open review queue", "打开复核队列"), icon=":material/fact_check:", width="stretch", disabled="Review queue" not in available_sections):
             _set_flash(_ui("Review queue opened.", "已打开复核队列。"), "info")
             _go("Review queue")
 
@@ -409,8 +552,196 @@ def _overview(store: ConsoleStore) -> None:
     )
 
 
+def _participants(store: ScopedConsoleStore) -> None:
+    st.markdown(
+        f"<div class='vs-io-strip'><div><span>{_escape(_ui('IDENTITY', '身份'))}</span>"
+        f"<b>{_escape(_ui('Pseudonymous participant records only', '仅保存去标识受试者记录'))}</b></div>"
+        f"<div><span>{_escape(_ui('CONSENT', '授权'))}</span>"
+        f"<b>{_escape(_ui('Purpose- and version-specific, with explicit withdrawal', '按用途和版本管理，并支持明确撤回'))}</b></div></div>",
+        unsafe_allow_html=True,
+    )
+    if _can(ROLE_OPERATOR, ROLE_REVIEWER, ROLE_ORG_ADMIN):
+        with st.expander(_ui("Register participant", "登记受试者"), expanded=not bool(store.list_participants())):
+            with st.form("vs_participant_create"):
+                pseudonym = st.text_input(
+                    _ui("Pseudonym", "去标识编号"),
+                    placeholder="P-001",
+                    help=_ui("Do not enter a name, phone number, or medical record number.", "请勿输入姓名、手机号或病历号。"),
+                )
+                study_id = st.text_input(_ui("Study ID", "研究编号"), placeholder="trial-a")
+                external_hash = st.text_input(
+                    _ui("External reference SHA-256 (optional)", "外部引用 SHA-256（可选）"),
+                    help=_ui("Store a one-way hash only when linkage is required.", "仅在需要关联时保存单向哈希。"),
+                )
+                create = st.form_submit_button(
+                    _ui("Register participant", "登记受试者"),
+                    type="primary",
+                    icon=":material/person_add:",
+                    width="stretch",
+                )
+            if create:
+                normalized_hash = external_hash.strip().lower()
+                if normalized_hash and (
+                    len(normalized_hash) != 64
+                    or any(character not in "0123456789abcdef" for character in normalized_hash)
+                ):
+                    st.error(_ui("External reference must be a 64-character SHA-256 value.", "外部引用必须是 64 位 SHA-256 值。"))
+                else:
+                    try:
+                        participant = store.upsert_participant(
+                            pseudonym=pseudonym,
+                            study_id=study_id,
+                            external_reference_hash=normalized_hash,
+                        )
+                        store.log_access(
+                            action="participant.create",
+                            resource_type="participant",
+                            resource_id=participant["participant_id"],
+                        )
+                        st.session_state["vs_participant_id"] = participant["participant_id"]
+                        _set_flash(_ui("Participant registered.", "受试者已登记。"), "success")
+                        st.rerun()
+                    except ValueError as error:
+                        st.error(str(error))
+
+    participants = store.list_participants()
+    if not participants:
+        st.info(_ui("No participant record is available.", "当前没有受试者记录。"))
+        return
+    st.subheader(_ui("Participant registry", "受试者登记表"))
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    _ui("Pseudonym", "去标识编号"): item["pseudonym"],
+                    _ui("Study", "研究"): item.get("study_id") or "-",
+                    _ui("Status", "状态"): item.get("status"),
+                    _ui("Updated", "更新时间"): item.get("updated_at"),
+                }
+                for item in participants
+            ]
+        ),
+        hide_index=True,
+        width="stretch",
+    )
+    labels = [f"{item['pseudonym']} · {item.get('study_id') or '-'}" for item in participants]
+    current_id = str(st.session_state.get("vs_participant_id") or "")
+    default_index = next(
+        (index for index, item in enumerate(participants) if item["participant_id"] == current_id),
+        0,
+    )
+    selected = participants[
+        labels.index(
+            st.selectbox(
+                _ui("Consent record for", "授权记录对象"),
+                labels,
+                index=default_index,
+                key="vs_participant_registry_selection",
+            )
+        )
+    ]
+    st.session_state["vs_participant_id"] = selected["participant_id"]
+    consents = store.list_consents(participant_id=selected["participant_id"])
+    active = [item for item in consents if item["status"] == "active"]
+    status_cols = st.columns(3)
+    _metric(status_cols[0], _ui("Active consents", "有效授权"), str(len(active)), _ui("purpose-specific", "按用途区分"), tone="teal")
+    _metric(status_cols[1], _ui("Consent versions", "授权版本"), str(len(consents)), _ui("full history retained", "保留完整历史"))
+    linked_cases = store.list_cases(participant_id=selected["participant_id"])
+    _metric(status_cols[2], _ui("Linked cases", "关联案例"), str(len(linked_cases)), _ui("pseudonymous linkage", "去标识关联"))
+
+    left, right = st.columns([1, 1], gap="large")
+    with left:
+        st.subheader(_ui("Record consent", "记录授权"))
+        with st.form(f"vs_consent_{selected['participant_id']}"):
+            purpose = st.selectbox(
+                _ui("Authorized purpose", "授权用途"),
+                ["workflow_validation", "algorithm_evaluation", "research_demo"],
+                format_func=_data_text,
+            )
+            document_version = st.text_input(
+                _ui("Consent document version", "授权文件版本"),
+                placeholder="consent-v1",
+            )
+            affirmed = st.checkbox(
+                _ui(
+                    "I confirm the signed/recorded consent covers this participant, purpose, and document version.",
+                    "我确认已签署或记录的授权覆盖该受试者、用途和文件版本。",
+                )
+            )
+            submit = st.form_submit_button(
+                _ui("Record versioned consent", "记录版本化授权"),
+                type="primary",
+                icon=":material/how_to_reg:",
+                width="stretch",
+            )
+        if submit:
+            if not affirmed or not document_version.strip():
+                st.warning(_ui("Confirm the authorization and enter its document version.", "请确认授权并填写文件版本。"))
+            else:
+                consent = store.record_consent(
+                    participant_id=selected["participant_id"],
+                    purpose=purpose,
+                    document_version=document_version,
+                    details={
+                        "raw_video_policy": "delete_after_analysis",
+                        "recorded_in": "product_console",
+                    },
+                )
+                store.log_access(
+                    action="consent.record",
+                    resource_type="consent",
+                    resource_id=consent["consent_id"],
+                )
+                _set_flash(_ui("Versioned consent recorded.", "版本化授权已记录。"), "success")
+                st.rerun()
+    with right:
+        st.subheader(_ui("Consent history", "授权历史"))
+        if consents:
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            _ui("Purpose", "用途"): _data_text(item["purpose"]),
+                            _ui("Version", "版本"): item["document_version"],
+                            _ui("Status", "状态"): _data_text(item["status"]),
+                            _ui("Recorded", "记录时间"): item["recorded_at"],
+                        }
+                        for item in consents
+                    ]
+                ),
+                hide_index=True,
+                width="stretch",
+            )
+            active_options = [item for item in consents if item["status"] == "active"]
+            if active_options and _can(ROLE_OPERATOR, ROLE_REVIEWER, ROLE_ORG_ADMIN):
+                selected_consent = st.selectbox(
+                    _ui("Active consent to withdraw", "要撤回的有效授权"),
+                    active_options,
+                    format_func=lambda item: f"{_data_text(item['purpose'])} · {item['document_version']}",
+                    key="vs_consent_withdraw_selection",
+                )
+                confirm_withdrawal = st.checkbox(
+                    _ui("Confirm withdrawal", "确认撤回"),
+                    key="vs_confirm_withdrawal",
+                )
+                if st.button(
+                    _ui("Withdraw consent", "撤回授权"),
+                    icon=":material/block:",
+                    disabled=not confirm_withdrawal,
+                    width="stretch",
+                ):
+                    store.withdraw_consent(selected_consent["consent_id"])
+                    _set_flash(_ui("Consent withdrawn; new processing is blocked.", "授权已撤回，新的处理已被阻止。"), "warning")
+                    st.rerun()
+        else:
+            st.info(_ui("No consent record exists for this participant.", "该受试者尚无授权记录。"))
+
+
 def _new_assessment(store: ConsoleStore) -> None:
     _step_strip()
+    identity = _active_identity()
+    participants = store.list_participants()
+    selected_participant: dict[str, Any] | None = None
     st.markdown(
         f"<div class='vs-io-strip'><div><span>{_escape(_ui('INPUT', '输入'))}</span>"
         f"<b>{_escape(_ui('Consented adult RGB face video or a labeled workflow case', '已授权的成人 RGB 人脸视频或明确标注的流程样例'))}</b></div>"
@@ -418,6 +749,31 @@ def _new_assessment(store: ConsoleStore) -> None:
         f"<b>{_escape(_ui('Quality result, release/review/retake state, evidence and next action', '质量结果、放行/复核/重采状态、证据与下一步操作'))}</b></div></div>",
         unsafe_allow_html=True,
     )
+    if participants:
+        participant_labels = [
+            f"{item['pseudonym']} · {item.get('study_id') or '-'}"
+            for item in participants
+        ]
+        current_participant = str(st.session_state.get("vs_participant_id") or identity.participant_id or "")
+        participant_index = next(
+            (index for index, item in enumerate(participants) if item["participant_id"] == current_participant),
+            0,
+        )
+        participant_label = st.selectbox(
+            _ui("Participant context", "受试者上下文"),
+            participant_labels,
+            index=participant_index,
+            help=_ui("The report stores the pseudonym and study linkage, not a direct identifier.", "报告保存去标识编号和研究关联，不保存直接身份信息。"),
+        )
+        selected_participant = participants[participant_labels.index(participant_label)]
+        st.session_state["vs_participant_id"] = selected_participant["participant_id"]
+    elif identity.auth_mode != "disabled":
+        st.warning(
+            _ui(
+                "No authorized participant record is linked to this workspace. Register or link one before processing media.",
+                "当前工作区没有已授权的受试者记录，请先登记或关联后再处理媒体。",
+            )
+        )
     st.markdown(
         f"<div class='vs-processing-contract'><div><b>{_escape(_ui('PRIVACY CONTRACT', '隐私契约'))}</b>"
         f"<span>{_escape(_ui('Raw video stays local and is deleted after analysis in the recommended mode.', '推荐模式下，原始视频仅在本地处理并于分析后删除。'))}</span></div>"
@@ -452,18 +808,53 @@ def _new_assessment(store: ConsoleStore) -> None:
             on_change=_sync_assessment_control,
             args=("vs_purpose", purpose_key),
         )
-        consent = st.checkbox(
-            _ui(
-                "I confirm the recording may be processed for the selected research purpose.",
-                "我确认该视频可按照所选研究用途进行处理。",
-            ),
-            key=consent_key,
-            on_change=_sync_assessment_control,
-            args=("vs_consent", consent_key),
+        active_consent = (
+            store.active_consent(
+                participant_id=selected_participant["participant_id"],
+                purpose=purpose,
+            )
+            if selected_participant
+            else None
         )
+        if identity.auth_mode != "disabled":
+            consent = active_consent is not None
+            st.checkbox(
+                _ui(
+                    "A versioned consent record is active for this participant and purpose.",
+                    "该受试者在当前用途下存在有效的版本化授权记录。",
+                ),
+                value=consent,
+                disabled=True,
+                key=f"vs_governed_consent_{selected_participant['participant_id'] if selected_participant else 'none'}_{purpose}",
+            )
+            if active_consent:
+                st.caption(
+                    f"{_ui('Consent version', '授权版本')}: {active_consent['document_version']} · "
+                    f"{_ui('Recorded', '记录时间')}: {active_consent['recorded_at']}"
+                )
+            else:
+                st.warning(_ui("No active consent covers this purpose.", "没有有效授权覆盖当前用途。"))
+        else:
+            consent = st.checkbox(
+                _ui(
+                    "I confirm the recording may be processed for the selected research purpose.",
+                    "我确认该视频可按照所选研究用途进行处理。",
+                ),
+                key=consent_key,
+                on_change=_sync_assessment_control,
+                args=("vs_consent", consent_key),
+            )
+        st.session_state["vs_consent"] = bool(consent)
+        retention_options = (
+            ["delete_after_analysis"]
+            if identity.auth_mode != "disabled"
+            else ["delete_after_analysis", "session_only"]
+        )
+        if st.session_state.get(retention_key) not in retention_options:
+            st.session_state[retention_key] = "delete_after_analysis"
         retention = st.radio(
             _ui("Raw-video handling", "原始视频处理"),
-            ["delete_after_analysis", "session_only"],
+            retention_options,
             format_func=lambda value: {
                 "delete_after_analysis": _ui("Delete after analysis; retain derived evidence", "分析后删除，仅保留派生证据"),
                 "session_only": _ui("Keep locally until cleared or automatically expired", "本地保留至清除或自动过期"),
@@ -512,7 +903,14 @@ def _new_assessment(store: ConsoleStore) -> None:
         action_col, reset_col = st.columns([1, 0.45])
         run_label = _ui("Run assessment", "运行评估")
         if action_col.button(run_label, type="primary", icon=":material/play_arrow:", width="stretch"):
-            if not consent:
+            if identity.auth_mode != "disabled" and selected_participant is None:
+                message = _ui(
+                    "Select an authorized participant before running the assessment.",
+                    "运行评估前，请选择已授权的受试者。",
+                )
+                st.warning(message)
+                st.toast(message, icon=":material/person_off:")
+            elif not consent:
                 message = _ui(
                     "Confirm processing consent before running the assessment.",
                     "运行评估前，请先确认视频处理授权。",
@@ -527,19 +925,35 @@ def _new_assessment(store: ConsoleStore) -> None:
                 try:
                     if source == "upload":
                         result = _process_upload(uploaded, purpose=purpose, retention=retention)
-                        store.upsert_case(result, actor=st.session_state["vs_operator"])
-                        st.session_state["vs_assessment_result"] = result
-                        st.session_state["vs_focus_case"] = result["case_id"]
                     else:
                         index = {"stable": 0, "conflict": 1, "low_light": 2}[source]
                         result = make_demo_cases()[index]
                         result["purpose"] = purpose
                         result["retention_policy"] = retention
                         result = ensure_output_contract(result)
-                        store.upsert_case(result, actor=st.session_state["vs_operator"])
-                        st.session_state["vs_assessment_result"] = result
                         st.session_state["vs_preflight"] = case_quality_snapshot(result)
-                        st.session_state["vs_focus_case"] = result["case_id"]
+                    if selected_participant:
+                        result["participant_id"] = selected_participant["participant_id"]
+                        result["study_id"] = selected_participant.get("study_id") or ""
+                        result["consent"] = {
+                            "recorded": True,
+                            "purpose": purpose,
+                            "document_version": (
+                                active_consent["document_version"]
+                                if active_consent
+                                else "local-session-affirmation"
+                            ),
+                        }
+                    result = ensure_output_contract(result)
+                    store.upsert_case(result, actor=identity.actor)
+                    store.log_access(
+                        action="assessment.create",
+                        resource_type="case",
+                        resource_id=result["case_id"],
+                        details={"decision": result["decision"], "raw_video_retained": False},
+                    )
+                    st.session_state["vs_assessment_result"] = result
+                    st.session_state["vs_focus_case"] = result["case_id"]
                     message = _ui(
                         f"Assessment completed: {_decision_text(result['decision'])}. Follow the recommended next action.",
                         f"评估完成：{_decision_text(result['decision'])}。请按照推荐的下一步操作处理。",
@@ -851,6 +1265,7 @@ def _review_queue(store: ConsoleStore) -> None:
 
 
 def _reports(store: ConsoleStore) -> None:
+    identity = _active_identity()
     cases = store.list_cases()
     if not cases:
         st.warning(_ui("No cases are available for reporting.", "当前没有可生成报告的案例。"))
@@ -861,13 +1276,62 @@ def _reports(store: ConsoleStore) -> None:
     selected_label = st.selectbox(_ui("Case report", "案例报告"), labels, index=default_index)
     case = cases[labels.index(selected_label)]
     st.session_state["vs_focus_case"] = case["case_id"]
+    if identity.primary_role == ROLE_PARTICIPANT:
+        audience_options = ["participant"]
+    elif identity.has_any_role(ROLE_REVIEWER, ROLE_ORG_ADMIN):
+        audience_options = ["reviewer", "operator", "participant", "research"]
+    elif identity.has_any_role(ROLE_RESEARCHER, ROLE_AUDITOR):
+        audience_options = ["research", "operator"]
+    else:
+        audience_options = ["operator", "participant"]
+    audience = st.segmented_control(
+        _ui("Report audience", "报告受众"),
+        audience_options,
+        default=audience_options[0],
+        format_func=lambda value: {
+            "participant": _ui("Participant", "受试者"),
+            "operator": _ui("Operator", "操作员"),
+            "reviewer": _ui("Reviewer", "复核人员"),
+            "research": _ui("Research", "研究人员"),
+        }[value],
+        key=f"vs_report_audience_{case['case_id']}",
+    ) or audience_options[0]
     review = next((item for item in store.list_reviews() if item["case_id"] == case["case_id"]), None)
-    payload = build_report_payload(case, review=review, audit_events=store.audit_events(case["case_id"]))
     language = "zh" if _is_zh() else "en"
+    payload = build_report_payload(case, review=review, audit_events=store.audit_events(case["case_id"]))
+    payload = report_for_audience(payload, audience=audience)
+    participant_id = str(case.get("participant_id") or identity.participant_id or "")
+    participant = store.get_participant(participant_id) if participant_id else None
+    consent = (
+        store.active_consent(
+            participant_id=participant_id,
+            purpose=str(case.get("purpose") or "workflow_validation"),
+        )
+        if participant_id
+        else None
+    )
+    related_cases = store.list_cases(participant_id=participant_id) if participant_id else [case]
+    payload = enrich_report_payload(
+        payload,
+        organization_id=identity.organization_id,
+        audience=audience,
+        language=language,
+        participant=participant,
+        consent=consent,
+        longitudinal=build_longitudinal_context(related_cases, current_case_id=case["case_id"]),
+    )
+    case = payload["case"]
     markdown = build_report_markdown(payload, language=language)
     pdf = build_report_pdf(payload, language=language)
+    fhir_bundle = build_fhir_bundle(payload)
 
     _report_preview(payload)
+    governance = payload["governance"]
+    st.caption(
+        f"{_ui('Evidence hash', '证据哈希')}: {governance['content_sha256'][:16]}… · "
+        f"{_ui('Audience', '受众')}: {audience} · "
+        f"{_ui('Raw media retained', '原始媒体留存')}: no"
+    )
     action_left, action_right = st.columns([1, 1])
     if case.get("decision") == "release":
         if action_left.button(
@@ -899,11 +1363,11 @@ def _reports(store: ConsoleStore) -> None:
     st.subheader(_ui("Export evidence package", "导出证据包"))
     st.caption(
         _ui(
-            "PDF is the human-readable report; JSON preserves the full contract; Markdown supports review; CSV contains the case-level row.",
-            "PDF 用于人工阅读；JSON 保留完整数据契约；Markdown 便于复核；CSV 提供案例级数据行。",
+            "PDF is human-readable; JSON preserves the contract; FHIR supports interoperable exchange; Markdown supports review; CSV contains the case-level row.",
+            "PDF 用于人工阅读；JSON 保留完整契约；FHIR 支持互操作交换；Markdown 便于复核；CSV 提供案例级数据行。",
         )
     )
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.download_button(_ui("Report PDF", "报告 PDF"), pdf, file_name=f"{case['display_id']}_evidence_report.pdf", mime="application/pdf", icon=":material/picture_as_pdf:", width="stretch")
     c2.download_button(_ui("Evidence JSON", "证据 JSON"), json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"), file_name=f"{case['display_id']}_evidence_report.json", mime="application/json", icon=":material/data_object:", width="stretch")
     c3.download_button(_ui("Review Markdown", "复核 Markdown"), markdown.encode("utf-8"), file_name=f"{case['display_id']}_evidence_report.md", mime="text/markdown", icon=":material/article:", width="stretch")
@@ -915,6 +1379,140 @@ def _reports(store: ConsoleStore) -> None:
         icon=":material/table_view:",
         width="stretch",
     )
+    c5.download_button(
+        _ui("FHIR bundle", "FHIR 数据包"),
+        json.dumps(fhir_bundle, ensure_ascii=False, indent=2).encode("utf-8"),
+        file_name=f"{case['display_id']}_fhir_bundle.json",
+        mime="application/fhir+json",
+        icon=":material/sync_alt:",
+        width="stretch",
+    )
+
+    st.subheader(_ui("Governed report versions", "治理化报告版本"))
+    version_left, version_right = st.columns([0.9, 1.1], gap="large")
+    with version_left:
+        can_create_report = _can(ROLE_OPERATOR, ROLE_REVIEWER, ROLE_ORG_ADMIN)
+        use_model = st.checkbox(
+            _ui("Use the local model when available", "本地模型可用时生成解释"),
+            value=True,
+            help=_ui(
+                "Every sentence is validated against the deterministic evidence catalog; invalid output is replaced by a deterministic explanation.",
+                "每句话都会对照确定性证据目录验证；无效输出会被确定性解释替换。",
+            ),
+            disabled=not can_create_report,
+            key=f"vs_report_use_model_{case['case_id']}_{audience}_{language}",
+        )
+        if st.button(
+            _ui("Create governed draft", "生成治理化草稿"),
+            type="primary",
+            icon=":material/history_edu:",
+            width="stretch",
+            disabled=not can_create_report,
+            key=f"vs_report_create_{case['case_id']}_{audience}_{language}",
+        ):
+            with st.spinner(_ui("Building and validating the report narrative...", "正在生成并验证报告解释……")):
+                narrative = (
+                    EvidenceBoundedReportNarrator(_assistant_engine(store).provider).generate(
+                        payload,
+                        language=language,
+                    )
+                    if use_model
+                    else {}
+                )
+                draft_payload = json.loads(json.dumps(payload, ensure_ascii=False))
+                draft_payload["governance"]["approval_status"] = "draft"
+                draft_payload["governance"]["narrative_status"] = "draft" if narrative else "not_generated"
+                evidence_hash = report_content_sha256(draft_payload)
+                draft_payload["governance"]["content_sha256"] = evidence_hash
+                report_hash = report_version_sha256(draft_payload, narrative)
+                version = store.save_report_version(
+                    case_id=case["case_id"],
+                    report_sha256=report_hash,
+                    audience=audience,
+                    language=language,
+                    payload=draft_payload,
+                    narrative=narrative,
+                )
+                store.log_access(
+                    action="report-version.create",
+                    resource_type="report",
+                    resource_id=version["report_id"],
+                    details={
+                        "case_id": case["case_id"],
+                        "content_sha256": evidence_hash,
+                        "report_version_sha256": report_hash,
+                    },
+                )
+            _set_flash(_ui("Governed report draft created.", "治理化报告草稿已生成。"), "success")
+            st.rerun()
+        if not can_create_report:
+            st.info(_ui("An operator or reviewer creates governed report versions.", "治理化报告版本由操作员或复核人员生成。"))
+    versions = store.list_report_versions(case["case_id"])
+    if identity.primary_role == ROLE_PARTICIPANT:
+        versions = [item for item in versions if item["audience"] == "participant"]
+    with version_right:
+        if versions:
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            _ui("Version", "版本"): item["report_id"][-10:],
+                            _ui("Audience", "受众"): item["audience"],
+                            _ui("Language", "语言"): item["language"],
+                            _ui("Status", "状态"): item["status"],
+                            _ui("Created", "生成时间"): item["created_at"],
+                        }
+                        for item in versions
+                    ]
+                ),
+                hide_index=True,
+                width="stretch",
+            )
+        else:
+            st.info(_ui("No governed report version exists for this case.", "该案例尚无治理化报告版本。"))
+
+    selected_version = None
+    if versions:
+        selected_version = st.selectbox(
+            _ui("Inspect report version", "查看报告版本"),
+            versions,
+            format_func=lambda item: f"{item['report_id'][-10:]} · {item['audience']} · {item['status']} · {item['created_at']}",
+            key=f"vs_report_version_{case['case_id']}",
+        )
+        narrative = selected_version.get("narrative") or {}
+        if narrative:
+            mode_label = _ui("Local model", "本地模型") if narrative.get("mode") == "model" else _ui("Deterministic fallback", "确定性回退")
+            st.markdown(
+                f"<div class='vs-report-ai'><span>{_escape(_ui('EVIDENCE-BOUNDED EXPLANATION', '证据约束解释'))}</span>"
+                f"<h3>{_escape(narrative.get('direct_summary', ''))}</h3>"
+                f"<p>{_escape(narrative.get('evidence_explanation', ''))}</p>"
+                f"<p><b>{_escape(_ui('Next action', '下一步'))}:</b> {_escape(narrative.get('action_guidance', ''))}</p>"
+                f"<small>{_escape(narrative.get('limitations', ''))}</small></div>",
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                f"{mode_label} · {narrative.get('provider')} / {narrative.get('model')} · "
+                f"{_ui('Validation', '验证')}: {'passed' if (narrative.get('validation') or {}).get('passed') else 'failed'} · "
+                f"{_ui('Evidence', '证据')}: {', '.join(narrative.get('evidence_ids') or [])}"
+            )
+        if selected_version["status"] == "draft":
+            if _can(ROLE_REVIEWER, ROLE_ORG_ADMIN):
+                approval_confirmed = st.checkbox(
+                    _ui("I verified the evidence hash, audience, narrative citations, and output state.", "我已核对证据哈希、受众、解释引用和输出状态。"),
+                    key=f"vs_report_approval_confirm_{selected_version['report_id']}",
+                )
+                if st.button(
+                    _ui("Approve report version", "批准报告版本"),
+                    type="primary",
+                    icon=":material/verified:",
+                    disabled=not approval_confirmed,
+                    key=f"vs_report_approve_{selected_version['report_id']}",
+                ):
+                    store.approve_report_version(selected_version["report_id"])
+                    _set_flash(_ui("Report version approved and audit-logged.", "报告版本已批准并写入审计。"), "success")
+                    st.rerun()
+            else:
+                st.info(_ui("A reviewer or organization administrator must approve this draft.", "该草稿需要复核人员或组织管理员批准。"))
     tabs = st.tabs(
         [
             _ui("Report detail", "报告详情"),
@@ -922,6 +1520,7 @@ def _reports(store: ConsoleStore) -> None:
             _ui("Attribution", "归因"),
             _ui("Review & audit", "复核与审计"),
             _ui("Structured data", "结构化数据"),
+            _ui("Longitudinal", "纵向记录"),
         ]
     )
     with tabs[0]:
@@ -1001,6 +1600,8 @@ def _reports(store: ConsoleStore) -> None:
             st.info(_ui("No audit event is available.", "暂无审计事件。"))
     with tabs[4]:
         st.json(payload, expanded=False)
+    with tabs[5]:
+        _longitudinal_panel(payload["longitudinal"])
 
 
 def _report_preview(payload: dict[str, Any]) -> None:
@@ -1285,7 +1886,8 @@ def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
 
 
 def _assistant(store: ConsoleStore) -> None:
-    engine = _assistant_engine()
+    identity = _active_identity()
+    engine = _assistant_engine(store)
     multimodal = _multimodal_engine()
     health = engine.health()
     ready = health.model_available
@@ -1327,14 +1929,24 @@ def _assistant(store: ConsoleStore) -> None:
 
     role_col, case_col, mode_col = st.columns([0.75, 1.35, 0.9])
     role_labels = {
-        "operator": _ui("Capture operator", "采集操作员"),
+        "operator": _ui("Participant / capture operator", "受试者 / 采集操作员"),
         "reviewer": _ui("Evidence reviewer", "证据复核人员"),
         "clinician": _ui("Clinical reader", "医护阅读者"),
         "admin": _ui("Administrator", "管理员"),
     }
+    if identity.has_any_role(ROLE_ORG_ADMIN):
+        role_options = list(role_labels)
+    elif identity.has_any_role(ROLE_REVIEWER):
+        role_options = ["reviewer", "clinician"]
+    elif identity.has_any_role(ROLE_RESEARCHER, ROLE_AUDITOR):
+        role_options = ["clinician"]
+    else:
+        role_options = ["operator"]
+    if st.session_state.get("vs_assistant_role") not in role_options:
+        st.session_state["vs_assistant_role"] = role_options[0]
     role = role_col.selectbox(
         _ui("Assistant role", "助手角色"),
-        list(role_labels),
+        role_options,
         format_func=lambda value: role_labels[value],
         key="vs_assistant_role",
     )
@@ -1350,7 +1962,11 @@ def _assistant(store: ConsoleStore) -> None:
     )
     if selected_case:
         st.session_state["vs_focus_case"] = selected_case
-    can_propose = role in {"reviewer", "admin"} and health.actions_enabled
+    can_propose = (
+        identity.has_any_role(ROLE_REVIEWER, ROLE_ORG_ADMIN)
+        and role in {"reviewer", "admin"}
+        and health.actions_enabled
+    )
     allow_actions = mode_col.toggle(
         _ui("Prepare review updates", "准备复核更新"),
         value=bool(st.session_state.get("vs_assistant_allow_actions")) if can_propose else False,
@@ -1473,7 +2089,7 @@ def _assistant(store: ConsoleStore) -> None:
                         key=f"vs_assistant_confirm_{index}",
                     ):
                         try:
-                            result = engine.confirm(str(pending["token"]), actor=st.session_state["vs_operator"])
+                            result = engine.confirm(str(pending["token"]), actor=identity.actor)
                             _set_flash(_data_text(result.message), "success")
                         except (PermissionError, KeyError, ValueError) as error:
                             _set_flash(str(error), "error")
@@ -1485,7 +2101,7 @@ def _assistant(store: ConsoleStore) -> None:
                         key=f"vs_assistant_reject_{index}",
                     ):
                         try:
-                            result = engine.reject(str(pending["token"]), actor=st.session_state["vs_operator"])
+                            result = engine.reject(str(pending["token"]), actor=identity.actor)
                             _set_flash(_data_text(result.message), "info")
                         except (KeyError, ValueError) as error:
                             _set_flash(str(error), "error")
@@ -1518,7 +2134,7 @@ def _assistant(store: ConsoleStore) -> None:
             role=AssistantRole(role),
             language=AssistantLanguage.zh if _is_zh() else AssistantLanguage.en,
             history=prior_turns,
-            actor=st.session_state["vs_operator"],
+            actor=identity.actor,
             conversation_id=st.session_state.get("vs_assistant_conversation_id"),
             allow_action_proposals=bool(allow_actions),
             media_contexts=media_contexts,
@@ -1609,9 +2225,15 @@ def _integrations(store: ConsoleStore) -> None:
                 ["POST", "/api/v1/assessments/video", _ui("Run video quality and evidence workflow", "运行视频质量与证据流程")],
                 ["GET", "/api/v1/cases", _ui("Case registry", "案例登记")],
                 ["GET", "/api/v1/cases/{case_id}", _ui("Evidence packet", "证据包")],
+                ["GET", "/api/v1/participants", _ui("Pseudonymous participant registry", "去标识受试者登记")],
+                ["POST", "/api/v1/participants/{participant_id}/consents", _ui("Versioned purpose consent", "版本化用途授权")],
                 ["GET", "/api/v1/reviews", _ui("Review queue", "复核队列")],
                 ["PUT", "/api/v1/reviews/{case_id}", _ui("Review update", "复核更新")],
                 ["GET", "/api/v1/cases/{case_id}/report?format=pdf", _ui("PDF report", "PDF 报告")],
+                ["GET", "/api/v1/cases/{case_id}/report?format=fhir", _ui("Research FHIR bundle", "研究 FHIR 数据包")],
+                ["POST", "/api/v1/cases/{case_id}/report-versions", _ui("Create governed report draft", "创建治理化报告草稿")],
+                ["POST", "/api/v1/report-versions/{report_id}/approve", _ui("Reviewer approval", "复核人员批准")],
+                ["GET", "/api/v1/organization/access-events", _ui("Organization access audit", "组织访问审计")],
                 ["GET", "/api/v1/assistant/health", _ui("Local model and fallback health", "本地模型与降级状态")],
                 ["GET", "/api/v1/assistant/multimodal/health", _ui("Image and speech capability health", "图片与语音能力状态")],
                 ["POST", "/api/v1/assistant/chat", _ui("Evidence-bounded assistant response", "基于证据的助手回答")],
@@ -1734,12 +2356,73 @@ def _help_settings(store: ConsoleStore) -> None:
 
     with right:
         st.subheader(_ui("Workspace settings", "工作区设置"))
-        operator = st.text_input(_ui("Operator name", "操作员名称"), value=st.session_state["vs_operator"])
-        if st.button(_ui("Save operator", "保存操作员"), type="primary", icon=":material/person_check:", width="stretch"):
+        identity = _active_identity()
+        operator = st.text_input(
+            _ui("Operator name", "操作员名称"),
+            value=st.session_state["vs_operator"],
+            disabled=identity.auth_mode != "disabled",
+        )
+        if st.button(
+            _ui("Save operator", "保存操作员"),
+            type="primary",
+            icon=":material/person_check:",
+            width="stretch",
+            disabled=identity.auth_mode != "disabled",
+        ):
             st.session_state["vs_operator"] = operator.strip() or "Research operator"
             message = _ui("Operator saved for future audit events.", "操作员已保存，将用于后续审计事件。")
             st.success(message)
             st.toast(message, icon=":material/check_circle:")
+        if identity.auth_mode != "disabled":
+            st.caption(_ui("The operator identity is supplied by OIDC and cannot be edited here.", "操作员身份由 OIDC 提供，不能在此修改。"))
+        if identity.has_any_role(ROLE_ORG_ADMIN, ROLE_AUDITOR):
+            st.markdown("---")
+            st.subheader(_ui("Organization & access", "组织与访问"))
+            st.caption(
+                _ui(
+                    "Identity-provider roles are read-only here. This view is for membership verification and access review.",
+                    "身份提供方角色在此只读；该区域用于核对成员映射与访问记录。",
+                )
+            )
+            memberships = store.memberships()
+            if memberships:
+                membership_rows = [
+                    {
+                        _ui("User", "用户"): item.get("display_name") or item.get("user_id"),
+                        _ui("Role", "角色"): item.get("role"),
+                        _ui("Status", "状态"): item.get("status"),
+                        _ui("Last synchronized", "最近同步"): item.get("updated_at"),
+                    }
+                    for item in memberships
+                ]
+                st.dataframe(pd.DataFrame(membership_rows), hide_index=True, width="stretch")
+            else:
+                st.info(_ui("No organization memberships are recorded.", "当前没有组织成员记录。"))
+            access_events = store.access_events(limit=200)
+            if access_events:
+                access_rows = [
+                    {
+                        "timestamp": item.get("created_at"),
+                        "user_id": item.get("user_id"),
+                        "action": item.get("action"),
+                        "resource_type": item.get("resource_type"),
+                        "resource_id": item.get("resource_id"),
+                        "outcome": item.get("outcome"),
+                    }
+                    for item in access_events
+                ]
+                with st.expander(_ui("Recent access audit", "近期访问审计")):
+                    access_frame = pd.DataFrame(access_rows)
+                    st.dataframe(access_frame, hide_index=True, width="stretch")
+                    st.download_button(
+                        _ui("Download access audit CSV", "下载访问审计 CSV"),
+                        access_frame.to_csv(index=False).encode("utf-8-sig"),
+                        file_name=f"vitalssight_access_audit_{identity.organization_id}.csv",
+                        mime="text/csv",
+                        icon=":material/download:",
+                        width="stretch",
+                        key="vs_access_audit_download",
+                    )
         st.markdown("---")
         st.subheader(_ui("Data handling", "数据处理"))
         st.markdown(
@@ -1914,6 +2597,72 @@ def _decision_chart(cases: list[dict[str, Any]]) -> None:
     st.plotly_chart(fig, width="stretch")
 
 
+def _longitudinal_panel(context: dict[str, Any]) -> None:
+    st.caption(_data_text(context.get("boundary") or ""))
+    timeline = context.get("timeline") or []
+    if not timeline:
+        st.info(_ui("No longitudinal record is available.", "暂无纵向记录。"))
+        return
+    counts = context.get("state_counts") or {}
+    columns = st.columns(4)
+    _metric(columns[0], _ui("Assessments", "评估次数"), str(context.get("case_count", 0)), _ui("state records", "状态记录"))
+    _metric(columns[1], _ui("Released", "已放行"), str(counts.get("release", 0)), _ui("entered HR trend", "进入心率趋势"), tone="teal")
+    _metric(columns[2], _ui("Review", "复核"), str(counts.get("review", 0)), _ui("HR withheld", "心率未发布"), tone="amber")
+    _metric(columns[3], _ui("Retake", "重采"), str(counts.get("retake", 0)), _ui("HR withheld", "心率未发布"), tone="coral")
+    released = context.get("released_measurements") or []
+    if released:
+        hr_chart = go.Figure(
+            go.Scatter(
+                x=[item.get("created_at") for item in released],
+                y=[item.get("released_hr_bpm") for item in released],
+                mode="lines+markers",
+                line=dict(color="#4F7E95", width=2.4),
+                marker=dict(size=8, color="#5E8F88", line=dict(color="#FFFFFF", width=1.2)),
+                hovertemplate="%{x}<br>%{y:.1f} BPM<extra></extra>",
+            )
+        )
+        hr_chart.update_layout(
+            height=280,
+            margin=dict(l=40, r=20, t=18, b=45),
+            yaxis_title="Released HR (BPM)",
+            xaxis_title=_ui("Assessment time", "评估时间"),
+            showlegend=False,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="#FFFFFF",
+            font=dict(color="#526773", family="Segoe UI, sans-serif", size=12),
+        )
+        hr_chart.update_yaxes(gridcolor="#E7EDF0", zeroline=False)
+        st.plotly_chart(hr_chart, width="stretch")
+    else:
+        st.info(_ui("No released HR value is available for the trend.", "暂无可进入趋势的已发布心率值。"))
+    state_chart = go.Figure(
+        go.Scatter(
+            x=[item.get("created_at") for item in timeline],
+            y=[_decision_text(str(item.get("decision"))) for item in timeline],
+            mode="markers",
+            marker=dict(
+                size=[12 if item.get("is_current") else 9 for item in timeline],
+                color=[_decision_color(str(item.get("decision"))) for item in timeline],
+                line=dict(color="#FFFFFF", width=1.4),
+            ),
+            text=[item.get("display_id") for item in timeline],
+            hovertemplate="%{text}<br>%{x}<br>%{y}<extra></extra>",
+        )
+    )
+    state_chart.update_layout(
+        height=210,
+        margin=dict(l=40, r=20, t=15, b=45),
+        xaxis_title=_ui("Assessment time", "评估时间"),
+        yaxis_title=_ui("Output state", "输出状态"),
+        showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="#FFFFFF",
+        font=dict(color="#526773", family="Segoe UI, sans-serif", size=12),
+    )
+    state_chart.update_yaxes(gridcolor="#E7EDF0")
+    st.plotly_chart(state_chart, width="stretch")
+
+
 def _trend_chart(case: dict[str, Any]) -> None:
     values = [value for value in case.get("trend_bpm", []) if value is not None]
     if not values:
@@ -1979,6 +2728,14 @@ def _percent(value: object) -> str:
 def _go(section: str) -> None:
     if section not in SECTIONS:
         raise ValueError(f"Unknown console section: {section}")
+    if section not in _sections_for_identity(_active_identity()):
+        st.session_state["vs_pending_section"] = "Overview"
+        st.session_state["vs_flash"] = _ui(
+            "Your current role does not include that workspace.",
+            "当前角色无权访问该工作区。",
+        )
+        st.session_state["vs_flash_kind"] = "warning"
+        st.rerun()
     st.session_state["vs_pending_section"] = section
     st.rerun()
 
@@ -2142,7 +2899,16 @@ def _inject_css() -> None:
         .vs-side-status b, .vs-side-status span { display:block; }
         .vs-side-status b { color:var(--ink); font-size:0.76rem; }
         .vs-side-status span { color:var(--muted); font-size:0.68rem; margin-top:0.06rem; }
+        .vs-identity-card { margin:0.7rem 0; padding:0.68rem 0.72rem; border:1px solid var(--line); border-left:3px solid var(--primary); background:#fff; border-radius:6px; box-shadow:var(--shadow-soft); }
+        .vs-identity-card b, .vs-identity-card span { display:block; overflow-wrap:anywhere; }
+        .vs-identity-card b { color:var(--ink); font-size:0.78rem; }
+        .vs-identity-card span { color:var(--muted); font-size:0.68rem; margin-top:0.18rem; }
         .vs-boundary-small { font-size: 0.76rem; line-height: 1.5; color: var(--muted); padding: 0.55rem 0; }
+        .vs-report-ai { border:1px solid var(--line); border-left:4px solid var(--teal); background:#fff; padding:0.95rem 1rem; border-radius:6px; box-shadow:var(--shadow-soft); margin:0.55rem 0; }
+        .vs-report-ai > span { display:block; color:var(--teal); font-size:0.67rem; font-weight:800; }
+        .vs-report-ai h3 { margin:0.32rem 0 0.48rem !important; font-size:1rem !important; }
+        .vs-report-ai p { margin:0.38rem 0; line-height:1.55; }
+        .vs-report-ai small { display:block; margin-top:0.55rem; color:var(--muted); line-height:1.45; }
         .vs-page-title { font-size: 1.78rem !important; line-height: 1.15; margin: 0 !important; color: var(--ink); letter-spacing: 0; }
         .vs-env { margin-top: 0.2rem; border: 1px solid var(--line); background: var(--paper); padding: 0.52rem 0.7rem; border-radius: 6px; display: grid; grid-template-columns:1fr 1fr; gap: 0; color: var(--muted); font-size: 0.72rem; box-shadow: var(--shadow-soft); }
         .vs-env > div { display:flex; flex-direction:column; align-items:flex-start; gap:0.04rem; min-width:0; padding:0 0.6rem; border-right:1px solid var(--line); }

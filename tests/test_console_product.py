@@ -33,6 +33,8 @@ from src.product.console_service import (
     video_preflight,
 )
 from src.product.console_store import ConsoleStore
+from src.product.console_store import ScopedConsoleStore
+from src.product.identity import local_identity
 from src.product.adult_hr_mvp import AdultHRMVPConfig, build_release_windows, detector_is_release_eligible
 from src.product.build_identity import path_fingerprint, source_build_identity
 from src.vision.face_mesh_roi import resolve_face_landmarker_model_path, validate_face_landmarker_model
@@ -83,6 +85,76 @@ def test_store_persists_review_and_audit(tmp_path: Path) -> None:
     assert updated["resolution"] == "close_without_release"
     event_types = {event["event_type"] for event in store.audit_events(case["case_id"])}
     assert {"case.created", "review.updated"}.issubset(event_types)
+
+
+def test_store_isolates_cases_reviews_and_audit_by_organization(tmp_path: Path) -> None:
+    base = ConsoleStore(tmp_path / "tenant-console.db")
+    alpha = ScopedConsoleStore(
+        base,
+        local_identity(organization_id="org-alpha", user_id="alpha-reviewer"),
+    )
+    beta = ScopedConsoleStore(
+        base,
+        local_identity(organization_id="org-beta", user_id="beta-reviewer"),
+    )
+    case = make_demo_cases()[1]
+
+    alpha.upsert_case(case)
+
+    assert [item["case_id"] for item in alpha.list_cases()] == [case["case_id"]]
+    assert beta.list_cases() == []
+    assert beta.get_case(case["case_id"]) is None
+    assert len(alpha.list_reviews()) == 1
+    assert beta.list_reviews() == []
+    assert alpha.audit_events(case["case_id"])
+    assert beta.audit_events(case["case_id"]) == []
+
+    with pytest.raises(PermissionError, match="another organization"):
+        beta.upsert_case(case)
+
+
+def test_participant_consent_and_report_versions_are_tenant_scoped(tmp_path: Path) -> None:
+    base = ConsoleStore(tmp_path / "governance-console.db")
+    alpha = ScopedConsoleStore(
+        base,
+        local_identity(organization_id="org-alpha", user_id="alpha-operator"),
+    )
+    beta = ScopedConsoleStore(
+        base,
+        local_identity(organization_id="org-beta", user_id="beta-operator"),
+    )
+    participant = alpha.upsert_participant(pseudonym="P-001", study_id="trial-a")
+    consent = alpha.record_consent(
+        participant_id=participant["participant_id"],
+        purpose="workflow_validation",
+        document_version="consent-v1",
+        details={"raw_video_policy": "delete_after_analysis"},
+    )
+    assert consent["status"] == "active"
+    assert alpha.active_consent(
+        participant_id=participant["participant_id"],
+        purpose="workflow_validation",
+    )["consent_id"] == consent["consent_id"]
+    assert beta.get_participant(participant["participant_id"]) is None
+
+    case = make_demo_cases()[0]
+    case["participant_id"] = participant["participant_id"]
+    case["study_id"] = "trial-a"
+    alpha.upsert_case(case)
+    report = alpha.save_report_version(
+        case_id=case["case_id"],
+        report_sha256="a" * 64,
+        audience="reviewer",
+        language="en",
+        payload={"case": {"case_id": case["case_id"]}},
+        narrative={},
+    )
+    assert report["status"] == "draft"
+    approved = alpha.approve_report_version(report["report_id"])
+    assert approved["status"] == "approved"
+    assert beta.list_report_versions(case["case_id"]) == []
+    with pytest.raises(ValueError, match="Only a draft"):
+        alpha.approve_report_version(report["report_id"])
 
 
 def test_report_is_valid_pdf(tmp_path: Path) -> None:

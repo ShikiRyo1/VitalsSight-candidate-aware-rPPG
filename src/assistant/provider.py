@@ -148,7 +148,7 @@ class OllamaProvider:
         if tools:
             payload["tools"] = tools
         if response_schema:
-            payload["format"] = response_schema
+            payload["format"] = _ollama_compatible_schema(response_schema)
         result = self._request("/api/chat", payload)
         message = result.get("message") or {}
         if think and response_schema:
@@ -180,6 +180,27 @@ class OllamaProvider:
             if function.get("name"):
                 parsed_calls.append(ProviderToolCall(str(function["name"]), dict(arguments)))
         return ProviderReply(content=str(message.get("content") or ""), tool_calls=tuple(parsed_calls))
+
+
+def _ollama_compatible_schema(value: Any) -> Any:
+    """Remove grammar bounds that Ollama cannot compile while retaining shape.
+
+    Pydantic still validates the returned payload against the original schema.
+    Ollama 0.32 rejects large JSON-schema string/item repetition bounds before
+    generation starts, so sending those bounds adds latency without adding a
+    trustworthy application-level guard.
+    """
+
+    if isinstance(value, dict):
+        unsupported_bounds = {"minLength", "maxLength", "minItems", "maxItems"}
+        return {
+            key: _ollama_compatible_schema(item)
+            for key, item in value.items()
+            if key not in unsupported_bounds
+        }
+    if isinstance(value, list):
+        return [_ollama_compatible_schema(item) for item in value]
+    return value
 
 
 class OllamaVisionProvider(OllamaProvider):

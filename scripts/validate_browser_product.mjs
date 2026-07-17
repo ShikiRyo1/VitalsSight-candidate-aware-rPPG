@@ -367,6 +367,33 @@ try {
   const assistantHealth = await assistantHealthResponse.json();
   check("assistant local model is ready", assistantHealth.model_available === true, JSON.stringify(assistantHealth));
   check("assistant deterministic fallback is available", assistantHealth.fallback_available === true);
+  const multimodalHealthResponse = await context.request.get(`${apiUrl}/api/v1/assistant/multimodal/health`);
+  check("multimodal health endpoint responds", multimodalHealthResponse.ok(), multimodalHealthResponse.status());
+  const multimodalHealth = await multimodalHealthResponse.json();
+  check("vision sidecar is available", multimodalHealth.image?.available === true, JSON.stringify(multimodalHealth.image));
+  check("speech sidecar is available", multimodalHealth.speech?.available === true, JSON.stringify(multimodalHealth.speech));
+  check("multimodal raw media is transient", multimodalHealth.raw_media_retained === false);
+
+  const participantResponse = await context.request.post(`${apiUrl}/api/v1/participants`, {
+    data: {
+      pseudonym: "P-BROWSER-QA",
+      study_id: "controlled-trial-browser",
+      external_reference_hash: "",
+    },
+  });
+  check("participant registration endpoint responds", participantResponse.status() === 201, participantResponse.status());
+  const participant = (await participantResponse.json()).item;
+  const consentResponse = await context.request.post(
+    `${apiUrl}/api/v1/participants/${participant.participant_id}/consents`,
+    {
+      data: {
+        purpose: "workflow_validation",
+        document_version: "browser-consent-v1",
+        details: { source: "browser-acceptance", raw_video_policy: "delete_after_analysis" },
+      },
+    },
+  );
+  check("versioned consent endpoint responds", consentResponse.status() === 201, consentResponse.status());
   check(
     "API service uses the validation upload root",
     health.storage?.upload_dir_fingerprint === expectedUploadFingerprint,
@@ -558,6 +585,29 @@ try {
   check("downloaded Markdown has corrected preflight chain", reportMarkdown.includes("Candidate construction | not entered | not evaluated"));
   check("downloaded Markdown excludes false illumination failure", !reportMarkdown.includes("Illumination score: 41%"));
   check("downloaded CSV has case row", (await fs.readFile(csvPath, "utf8")).split(/\r?\n/).length >= 2);
+  const fhirPath = await downloadByButton(page, "FHIR bundle", ".json");
+  const fhirBundle = JSON.parse(await fs.readFile(fhirPath, "utf8"));
+  const fhirTypes = (fhirBundle.entry || []).map((entry) => entry.resource?.resourceType);
+  check("FHIR export is a research bundle", fhirBundle.resourceType === "Bundle", fhirBundle.resourceType);
+  check("retake FHIR export withholds Observation", !fhirTypes.includes("Observation"), JSON.stringify(fhirTypes));
+  check("retake FHIR export creates an action Task", fhirTypes.includes("Task"), JSON.stringify(fhirTypes));
+
+  const draftResponse = await context.request.post(
+    `${apiUrl}/api/v1/cases/${reportJson.case.case_id}/report-versions`,
+    { data: { audience: "reviewer", language: "en", generate_narrative: false } },
+  );
+  check("governed report draft endpoint responds", draftResponse.status() === 201, draftResponse.status());
+  const governedDraft = (await draftResponse.json()).item;
+  check("governed report draft has an immutable hash", /^[a-f0-9]{64}$/.test(governedDraft.report_sha256), governedDraft.report_sha256);
+  const approveResponse = await context.request.post(
+    `${apiUrl}/api/v1/report-versions/${governedDraft.report_id}/approve`,
+  );
+  check("reviewer approval endpoint responds", approveResponse.ok(), approveResponse.status());
+  check("approved report version is immutable", (await approveResponse.json()).item.status === "approved");
+  const duplicateApproval = await context.request.post(
+    `${apiUrl}/api/v1/report-versions/${governedDraft.report_id}/approve`,
+  );
+  check("duplicate report approval is rejected", duplicateApproval.status() === 409, duplicateApproval.status());
 
   await page.getByRole("button", { name: /Open review workflow/ }).click();
   await waitForHeading(page, "Review queue");
@@ -572,11 +622,17 @@ try {
   );
   check("corrected-recording action clears the session-only raw upload", (await regularFiles(expectedUploadRoot)).length === 0);
 
-  const workspaces = ["Overview", "New assessment", "Cases", "Review queue", "Reports", "AI assistant", "Evidence", "Integrations", "Help & settings"];
+  const workspaces = ["Overview", "New assessment", "Participants", "Cases", "Review queue", "Reports", "AI assistant", "Evidence", "Integrations", "Help & settings"];
   for (const workspace of workspaces) {
     await gotoWorkspace(page, workspace);
     check(`workspace opens: ${workspace}`, true);
   }
+
+  await gotoWorkspace(page, "Participants");
+  text = await bodyText(page);
+  check("participant registry renders the API-created pseudonym", text.includes("P-BROWSER-QA"), text.slice(0, 1800));
+  check("participant registry renders versioned consent", text.includes("browser-consent-v1"), text.slice(-1800));
+  check("participant registry avoids direct identity fields", !text.includes("Medical record number") && !text.includes("Phone number"));
 
   await gotoWorkspace(page, "Cases");
   const caseSearch = page.getByRole("textbox", { name: "Search", exact: true });
@@ -613,6 +669,11 @@ try {
   await page.getByRole("button", { name: /Save operator/ }).click();
   await page.getByText("Operator saved for future audit events.").first().waitFor({ state: "visible", timeout: 15000 });
   check("operator setting saved", true);
+  text = await bodyText(page);
+  check("organization access panel is visible", text.includes("Organization access"), text.slice(-1800));
+  await page.getByText("Recent access audit", { exact: true }).click();
+  await page.getByText("report-version.approve", { exact: true }).first().waitFor({ state: "attached", timeout: 15000 });
+  check("organization access audit renders governed-report activity", true);
 
   await page.getByText("What should I do if a click appears to do nothing?", { exact: true }).click();
   await page.getByText("Every command now either navigates, downloads a file, or shows a success/warning message.", { exact: false }).waitFor({ state: "visible", timeout: 10000 });
@@ -642,6 +703,9 @@ try {
   const openapi = JSON.parse(await fs.readFile(openapiPath, "utf8"));
   check("OpenAPI contains video assessment endpoint", Boolean(openapi.paths?.["/api/v1/assessments/video"]));
   check("OpenAPI contains assistant chat endpoint", Boolean(openapi.paths?.["/api/v1/assistant/chat"]));
+  check("OpenAPI contains participant endpoint", Boolean(openapi.paths?.["/api/v1/participants"]));
+  check("OpenAPI contains governed report endpoint", Boolean(openapi.paths?.["/api/v1/cases/{case_id}/report-versions"]));
+  check("OpenAPI contains report approval endpoint", Boolean(openapi.paths?.["/api/v1/report-versions/{report_id}/approve"]));
   await saveState(page, "10_integrations_audit");
   const integratedReportResponse = await context.request.get(
     `${apiUrl}/api/v1/cases/${reportJson.case.case_id}/report?format=json`,
@@ -715,7 +779,7 @@ try {
   check("no unexpected HTTP response errors", responseErrors.length === 0, JSON.stringify(responseErrors));
 
   const manifest = {
-    validation_version: "vitalssight.browser-product-validation.v5",
+    validation_version: "vitalssight.browser-product-validation.v6",
     passed: checks.every((item) => item.passed),
     git_commit: actualCommit,
     git_tree: gitTree,

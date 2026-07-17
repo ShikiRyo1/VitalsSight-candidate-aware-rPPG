@@ -260,6 +260,46 @@ def test_ollama_thinking_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> Non
     assert captured["options"]["num_predict"] == 768
 
 
+def test_ollama_removes_unsupported_grammar_bounds_but_preserves_schema_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VITALSSIGHT_ASSISTANT_THINKING", "false")
+    provider = OllamaProvider(model="qwen3.6:35b")
+    captured: dict[str, Any] = {}
+
+    def fake_request(path: str, payload: dict[str, Any], **_: Any) -> dict[str, Any]:
+        captured.update(payload)
+        return {"message": {"content": "{}"}}
+
+    provider._request = fake_request  # type: ignore[method-assign]
+    schema = {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string", "minLength": 1, "maxLength": 1600},
+            "evidence_ids": {
+                "type": "array",
+                "items": {"type": "string", "pattern": "^E[0-9]+$"},
+                "minItems": 1,
+                "maxItems": 30,
+            },
+        },
+        "required": ["summary", "evidence_ids"],
+    }
+    provider.chat([{"role": "user", "content": "compose"}], response_schema=schema)
+
+    assert captured["format"] == {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string"},
+            "evidence_ids": {
+                "type": "array",
+                "items": {"type": "string", "pattern": "^E[0-9]+$"},
+            },
+        },
+        "required": ["summary", "evidence_ids"],
+    }
+
+
 def test_ollama_retries_empty_thinking_answer_without_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VITALSSIGHT_ASSISTANT_THINKING", "true")
     provider = OllamaProvider(model="qwen3.6:35b")

@@ -89,6 +89,13 @@ New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ResolvedDbPath) |
 New-Item -ItemType Directory -Force -Path $ResolvedUploadDir | Out-Null
 $env:VITALSSIGHT_DB_PATH = $ResolvedDbPath
 $env:VITALSSIGHT_UPLOAD_DIR = $ResolvedUploadDir
+$AuthMode = if ($env:VITALSSIGHT_AUTH_MODE) { $env:VITALSSIGHT_AUTH_MODE.ToLowerInvariant() } else { "disabled" }
+if ($AuthMode -notin @("disabled", "required")) {
+    throw "VITALSSIGHT_AUTH_MODE must be disabled or required"
+}
+if ($AuthMode -eq "disabled") {
+    Write-Warning "VitalsSight is starting with the local development identity. Do not use this mode for a controlled multi-user trial."
+}
 
 $ApiLauncher = Start-Process -FilePath $Python -ArgumentList @(
     "-m", "uvicorn", "app.api_server:app", "--host", "127.0.0.1", "--port", "$ApiPort"
@@ -151,6 +158,7 @@ if (-not $ApiPid -or -not $UiPid) {
     vision_model = $VisionModel
     asr_model = $AsrModel
     actions_enabled = [bool]$EnableReviewActions
+    auth_mode = $AuthMode
     db_path = $ResolvedDbPath
     upload_dir = $ResolvedUploadDir
     started_at = (Get-Date).ToString("o")
@@ -162,3 +170,4 @@ Write-Output "Assistant model: $Model"
 Write-Output "Vision model: $VisionModel"
 Write-Output "Speech model: $AsrModel"
 Write-Output "Review actions enabled: $([bool]$EnableReviewActions)"
+Write-Output "Authentication mode: $AuthMode"

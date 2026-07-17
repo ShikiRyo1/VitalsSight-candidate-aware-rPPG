@@ -37,7 +37,7 @@ Optional deep-learning dependencies are listed in `requirements-deep.txt` and `r
 
 ## Product console
 
-The default Streamlit entry point is a complete research-product workflow with role-based operation guides, video-quality qualification, explicit release/review/retake states, a persistent review queue, evidence attribution, versioned PDF/JSON/Markdown/CSV reports, protocol-bound metrics, and an integration surface. Each non-release report connects the triggering signal and observed value to its policy target, recommended action, verification criterion, and escalation path; every exercised command returns visible feedback.
+The default Streamlit entry point is a complete research-product workflow with OIDC-ready organization/role scoping, pseudonymous participant and consent management, role-based operation guides, video-quality qualification, explicit release/review/retake states, a persistent review queue, evidence attribution, governed report versions, longitudinal state context, PDF/JSON/Markdown/CSV/FHIR exports, protocol-bound metrics, and an integration surface. Each non-release report connects the triggering signal and observed value to its policy target, recommended action, verification criterion, and escalation path; every exercised command returns visible feedback.
 
 ![VitalsSight evidence operations console](docs/assets/product-console-overview.png)
 
@@ -65,7 +65,15 @@ curl -X POST http://127.0.0.1:8010/api/v1/assessments/video \
   -F "actor=research-operator"
 ```
 
-The endpoint returns `release`, `review`, or `retake`. Only `release` may contain `released_hr_bpm`; the raw upload is deleted after processing. Interactive API documentation is available at `http://127.0.0.1:8010/docs` while the API is running. The product boundary remains research-only: the console does not claim live clinical monitoring, emergency alerting, autonomous clinical release, production identity/access management, or medical-device readiness.
+The endpoint returns `release`, `review`, or `retake`. Only `release` may contain `released_hr_bpm`; the raw upload is deleted after processing. Interactive API documentation is available at `http://127.0.0.1:8010/docs` while the API is running. The product boundary remains research-only: the console does not claim live clinical monitoring, emergency alerting, autonomous clinical release, hardened public hosting, regulatory certification, or medical-device readiness. Required-auth mode provides verified OIDC identity, role and organization scoping for a supervised single-instance controlled trial; it is not a substitute for an infrastructure and security review.
+
+### Controlled-trial identity and report governance
+
+Local development uses an explicitly labelled development identity. A multi-user controlled trial must set `VITALSSIGHT_AUTH_MODE=required`, configure `.streamlit/secrets.toml`, and provide issuer/audience/JWKS values from an OIDC provider. The API verifies signed bearer tokens; the UI and store enforce organization and participant scope. Roles remain managed by the identity provider rather than by application passwords.
+
+Reports are audience-specific and content-hashed. An optional local model may draft an evidence-cited explanation, but strict validation and reviewer approval remain mandatory. Model failure produces a labelled deterministic fallback. Only release cases generate an HR `Observation` in FHIR; review and retake generate a `Task` with HR withheld.
+
+Operational guidance is in [docs/CONTROLLED_TRIAL_OPERATIONS.md](docs/CONTROLLED_TRIAL_OPERATIONS.md), the threat/data model is in [docs/PRIVACY_SECURITY_MODEL.md](docs/PRIVACY_SECURITY_MODEL.md), report/FHIR rules are in [docs/REPORT_GOVERNANCE_AND_FHIR.md](docs/REPORT_GOVERNANCE_AND_FHIR.md), and the deliberately separate native-app/multi-instance continuation is in [docs/NATIVE_APP_AND_SCALE_ROADMAP.md](docs/NATIVE_APP_AND_SCALE_ROADMAP.md).
 
 The previous experiment-heavy dashboard is retained at `app/legacy_research_dashboard.py` for provenance, but it is no longer the default product surface. See [docs/PRODUCT_BENCHMARK_AND_COMPLETION.md](docs/PRODUCT_BENCHMARK_AND_COMPLETION.md) for the official-source product benchmark and implemented workflow contract.
 

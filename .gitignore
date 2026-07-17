@@ -13,10 +13,13 @@ artifacts_*.log
 # Credentials and machine-local configuration
 .env
 .env.*
+!.env.controlled-trial.example
 *.pem
 *.key
 *credential*
 *secret*
+!.streamlit/secrets.toml.example
+.streamlit/secrets.toml
 
 # Raw datasets, participant media and large arrays
 data/
