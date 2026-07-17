@@ -672,8 +672,16 @@ try {
   text = await bodyText(page);
   check("organization access panel is visible", text.includes("Organization access"), text.slice(-1800));
   await page.getByText("Recent access audit", { exact: true }).click();
-  await page.getByText("report-version.approve", { exact: true }).first().waitFor({ state: "attached", timeout: 15000 });
-  check("organization access audit renders governed-report activity", true);
+  await page.getByRole("button", { name: /Download access audit CSV/ }).waitFor({ state: "visible", timeout: 15000 });
+  check("organization access audit exposes a CSV export", true);
+  const accessAuditResponse = await context.request.get(`${apiUrl}/api/v1/organization/access-events`);
+  check("organization access audit endpoint responds", accessAuditResponse.ok(), accessAuditResponse.status());
+  const accessAudit = await accessAuditResponse.json();
+  check(
+    "organization access audit retains governed-report activity",
+    accessAudit.items.some((item) => item.action === "report-version.approve"),
+    JSON.stringify(accessAudit.items.slice(0, 12)),
+  );
 
   await page.getByText("What should I do if a click appears to do nothing?", { exact: true }).click();
   await page.getByText("Every command now either navigates, downloads a file, or shows a success/warning message.", { exact: false }).waitFor({ state: "visible", timeout: 10000 });
