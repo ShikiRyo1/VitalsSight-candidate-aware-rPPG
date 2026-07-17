@@ -78,6 +78,41 @@ class ScriptedProvider:
         )
 
 
+class RepairingProvider(ScriptedProvider):
+    def __init__(self) -> None:
+        super().__init__("unused")
+        self.compositions = 0
+
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        response_schema: dict[str, Any] | None = None,
+    ) -> ProviderReply:
+        self.calls.append(messages)
+        self.response_schemas.append(response_schema)
+        if tools is not None:
+            return ProviderReply()
+        self.compositions += 1
+        if self.compositions == 1:
+            direct = "Motion caused the review, so HR remains withheld [E1]."
+            explanation = "The motion value triggered the competing-track state [E1]."
+        else:
+            direct = "The recorded state is review and HR remains withheld [E1]."
+            explanation = "Competing candidate tracks remained plausible and required review [E2] [E3]."
+        return ProviderReply(
+            content=json.dumps(
+                {
+                    "direct_answer": direct,
+                    "evidence_explanation": explanation,
+                    "next_step": "Keep the evidence linked and verify the review record [E5].",
+                    "used_evidence_ids": ["E1", "E2", "E3", "E5"],
+                }
+            )
+        )
+
+
 class ScriptedVisionProvider:
     provider_name = "scripted-vision"
     model = "qwen-test-vision"
@@ -487,6 +522,34 @@ def test_model_cannot_blame_within_target_motion_for_track_conflict(tmp_path: Pa
     assert result.provider == "deterministic_fallback"
     assert result.degraded is True
     assert result.validation.fallback_reason == "model answer treated a non-driver as causal: Motion"
+
+
+def test_selected_case_model_gets_one_bounded_repair_after_causal_failure(tmp_path: Path) -> None:
+    case = stable_case()
+    case.update(
+        case_id="repairable_track_review",
+        display_id="VS-REPAIR",
+        decision="review",
+        released_hr_bpm=None,
+        competing_track_count=3,
+        review_reason="Competing cross-window candidate tracks remain plausible.",
+        recommended_action="Keep the competing tracks linked to the case and route them to review.",
+    )
+    provider = RepairingProvider()
+    engine = AssistantOrchestrator(store_with_case(tmp_path / "repair.db", case), provider=provider)
+
+    result = engine.chat(request(case["case_id"], "Explain why this case requires review."))
+
+    assert provider.compositions == 2
+    assert result.provider == "scripted"
+    assert result.degraded is False
+    assert result.validation.fallback_reason is None
+    assert "model answer repaired after validation feedback" in result.validation.checks
+    assert "Motion caused" not in result.answer
+    serialized_calls = json.dumps(provider.calls, ensure_ascii=False)
+    assert "Context metrics (not causal without a triggered or warning status)" not in serialized_calls
+    assert '"quality_score"' not in serialized_calls
+    assert "A prior draft failed deterministic post-validation" in serialized_calls
 
 
 def duration_only_retake_case() -> dict[str, Any]:

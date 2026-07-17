@@ -273,6 +273,33 @@ class AssistantOrchestrator:
                     evidence_ids={item.evidence_id for item in evidence_refs},
                     tool_results=[item.get("result", {}) for item in traces if "result" in item],
                 )
+                if not valid and reason and case:
+                    repaired_draft = self._compose_with_provider(
+                        request,
+                        traces,
+                        evidence_refs,
+                        fallback_answer,
+                        repair_reason=reason,
+                    )
+                    repaired_answer = self._ensure_citation(
+                        repaired_draft.answer.strip(),
+                        repaired_draft.used_evidence_ids,
+                        evidence_refs,
+                    )
+                    repaired_valid, repaired_checks, repaired_reason = validate_generated_answer(
+                        repaired_answer,
+                        case=case,
+                        evidence_ids={item.evidence_id for item in evidence_refs},
+                        tool_results=[item.get("result", {}) for item in traces if "result" in item],
+                    )
+                    if repaired_valid:
+                        candidate_answer = repaired_answer
+                        valid = True
+                        model_checks = [*repaired_checks, "model answer repaired after validation feedback"]
+                        reason = None
+                    else:
+                        model_checks = repaired_checks
+                        reason = repaired_reason or reason
                 if valid:
                     answer = candidate_answer
                     provider_name = provider_status.provider
@@ -448,6 +475,8 @@ class AssistantOrchestrator:
         traces: list[dict[str, Any]],
         evidence_refs: list[EvidenceReference],
         fallback_answer: str,
+        *,
+        repair_reason: str = "",
     ) -> ProviderDraft:
         evidence = [item.model_dump(mode="json") for item in evidence_refs]
         system = (
@@ -470,9 +499,18 @@ class AssistantOrchestrator:
             "When a case is selected, always include all three elements: direct conclusion, recorded evidence with the "
             "causal workflow explanation, and a concrete action or verification step. For general or navigation questions, "
             "include only the parts needed to answer the request. Keep the three sections distinct and do not copy the "
-            "minimum safe fallback verbatim. "
+            "minimum safe fallback verbatim. For a review or retake, do not enumerate non-driver metrics unless the "
+            "question requires it; when distinguishing passing checks, refer to the E4 non-driver set collectively as "
+            "within target and not causal. Never attach a raw value or corrective action to a non-driver. "
             "Reply in the requested language. Return only JSON matching the schema."
         )
+        if repair_reason:
+            system += (
+                " A prior draft failed deterministic post-validation for this exact reason: "
+                f"{repair_reason}. Rewrite from scratch. Mention causes only from the causal_drivers evidence and actions "
+                "only from the permitted steps. Do not name any non-driver signal; describe E4 collectively as passing "
+                "and noncausal."
+            )
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
         for turn in request.history[-6:]:
             if not inspect_input(turn.content).allowed:
@@ -600,7 +638,10 @@ class AssistantOrchestrator:
                 add("Recorded output state", f"case:{case.get('case_id')}:decision", {"decision": case.get("decision"), "released_hr_bpm": displayed_hr(case.get("released_hr_bpm")), "hr_withheld": case.get("hr_withheld")}, "case")
                 add("Recorded reason and next action", f"case:{case.get('case_id')}:action_plan", {"reason": case.get("review_reason"), "recommended_action": case.get("recommended_action")}, "case")
                 add_action_plan(result.get("action_plan") or {}, source=f"case:{case.get('case_id')}:action_plan")
-                add("Context metrics (not causal without a triggered or warning status)", f"case:{case.get('case_id')}:quality", {"causal_use": False, **{key: case.get(key) for key in ("quality_score", "face_coverage", "illumination_score", "motion_score", "candidate_count", "agreement_fraction", "harmonic_risk")}}, "case")
+                # Raw context metrics remain in the case/report payload, but are not
+                # admitted to the prose model unless the action plan marks them as
+                # causal. This prevents a fluent model from upgrading context into
+                # an unsupported failure explanation.
                 add("Policy and implementation identity", f"case:{case.get('case_id')}:provenance", {"policy_version": case.get("policy_version"), "model_version": case.get("model_version"), "runtime": case.get("runtime")}, "policy")
             elif tool == "get_report_summary" and result:
                 add("Evidence report interpretation", f"report:{(result.get('case') or {}).get('case_id')}", result.get("interpretation"), "report")
