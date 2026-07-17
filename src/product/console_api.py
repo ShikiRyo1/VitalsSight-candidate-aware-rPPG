@@ -15,8 +15,13 @@ from src.assistant import (
     AssistantConfirmRequest,
     AssistantConfirmResponse,
     AssistantHealthResponse,
+    AssistantMultimodalHealthResponse,
+    AudioTranscriptionResponse,
+    ImageAnalysisResponse,
+    MultimodalAssistantService,
     AssistantOrchestrator,
 )
+from src.assistant.multimodal import MediaProcessingError
 from src.assistant.provider import ChatProvider
 from src.product.console_service import (
     CLAIM_BOUNDARY,
@@ -57,6 +62,7 @@ def create_app(
     seed_demo: bool = True,
     assistant_provider: ChatProvider | None = None,
     assistant_actions_enabled: bool | None = None,
+    multimodal_service: MultimodalAssistantService | None = None,
 ) -> FastAPI:
     resolved_db_path = Path(db_path or default_db_path())
     store = ConsoleStore(resolved_db_path)
@@ -66,6 +72,7 @@ def create_app(
         provider=assistant_provider,
         actions_enabled=assistant_actions_enabled,
     )
+    multimodal = multimodal_service or MultimodalAssistantService()
     upload_dir = Path(os.getenv("VITALSSIGHT_UPLOAD_DIR", resolved_db_path.parent / "uploads" / "api"))
     upload_dir.mkdir(parents=True, exist_ok=True)
     max_upload_bytes = int(os.getenv("VITALSSIGHT_MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))
@@ -75,14 +82,15 @@ def create_app(
 
     app = FastAPI(
         title="VitalsSight Evidence API",
-        version="1.0.0",
+        version="1.1.0",
         description=(
-            "Research product API for candidate-aware adult HR evidence, review workflow, "
-            "and report export. It does not provide clinical decisions."
+            "Research product API for candidate-aware adult HR evidence, review workflow, report export, "
+            "and transient voice/image assistant intake. It does not provide clinical decisions."
         ),
     )
     app.state.store = store
     app.state.assistant = assistant
+    app.state.multimodal = multimodal
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -106,6 +114,56 @@ def create_app(
     @app.get("/api/v1/assistant/health", response_model=AssistantHealthResponse)
     def assistant_health() -> AssistantHealthResponse:
         return assistant.health()
+
+    @app.get("/api/v1/assistant/multimodal/health", response_model=AssistantMultimodalHealthResponse)
+    def assistant_multimodal_health() -> AssistantMultimodalHealthResponse:
+        return multimodal.health()
+
+    @app.post("/api/v1/assistant/transcribe", response_model=AudioTranscriptionResponse)
+    def assistant_transcribe(
+        file: UploadFile = File(...),
+        language: str = Form("auto"),
+    ) -> AudioTranscriptionResponse:
+        try:
+            if language not in {"auto", "zh", "en"}:
+                raise HTTPException(status_code=422, detail="language must be auto, zh, or en")
+            data = file.file.read(multimodal.max_audio_bytes + 1)
+            if len(data) > multimodal.max_audio_bytes:
+                raise HTTPException(status_code=413, detail="Audio exceeds the configured upload limit")
+            return multimodal.transcribe_audio(
+                data,
+                filename=file.filename or "voice.wav",
+                content_type=file.content_type or "audio/wav",
+                language=None if language == "auto" else language,
+            )
+        except MediaProcessingError as error:
+            raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+        finally:
+            file.file.close()
+
+    @app.post("/api/v1/assistant/analyze-image", response_model=ImageAnalysisResponse)
+    def assistant_analyze_image(
+        file: UploadFile = File(...),
+        question: str = Form(""),
+        language: str = Form("zh"),
+    ) -> ImageAnalysisResponse:
+        try:
+            if language not in {"zh", "en"}:
+                raise HTTPException(status_code=422, detail="language must be zh or en")
+            data = file.file.read(multimodal.max_image_bytes + 1)
+            if len(data) > multimodal.max_image_bytes:
+                raise HTTPException(status_code=413, detail="Image exceeds the configured upload limit")
+            return multimodal.analyze_image(
+                data,
+                filename=file.filename or "image.png",
+                content_type=file.content_type or "application/octet-stream",
+                question=question,
+                language=language,
+            )
+        except MediaProcessingError as error:
+            raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+        finally:
+            file.file.close()
 
     @app.post("/api/v1/assistant/chat", response_model=AssistantChatResponse)
     def assistant_chat(request: AssistantChatRequest) -> AssistantChatResponse:

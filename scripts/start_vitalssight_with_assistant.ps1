@@ -1,12 +1,16 @@
 param(
     [string]$Model = "qwen3:4b",
+    [string]$VisionModel = "qwen3-vl:4b-instruct",
+    [string]$AsrModel = "small",
     [int]$UiPort = 8501,
     [int]$ApiPort = 8010,
     [string]$DbPath = "",
     [string]$UploadDir = "",
     [switch]$EnableReviewActions,
     [switch]$SkipModelCheck,
-    [switch]$RequireModel
+    [switch]$RequireModel,
+    [switch]$SkipMultimodalCheck,
+    [switch]$RequireMultimodal
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,10 +65,22 @@ if (-not $SkipModelCheck -and (Test-LocalPort 11434)) {
     Write-Warning "Ollama is unavailable. VitalsSight will start with deterministic evidence guidance."
 }
 
+if (-not $SkipMultimodalCheck -and (Test-LocalPort 11434)) {
+    & $Python (Join-Path $PSScriptRoot "setup_multimodal_assistant.py") `
+        --vision-model $VisionModel --asr-model $AsrModel --base-url "http://127.0.0.1:11434" `
+        --skip-vision-pull --skip-asr-download
+    if ($LASTEXITCODE -ne 0) {
+        if ($RequireMultimodal) { throw "One or more multimodal sidecars are not ready" }
+        Write-Warning "One or more multimodal sidecars are unavailable. Typed questions and available fallbacks will remain operational."
+    }
+}
+
 if (Test-LocalPort $UiPort) { throw "UI port $UiPort is already in use" }
 if (Test-LocalPort $ApiPort) { throw "API port $ApiPort is already in use" }
 
 $env:VITALSSIGHT_ASSISTANT_MODEL = $Model
+$env:VITALSSIGHT_ASSISTANT_VISION_MODEL = $VisionModel
+$env:VITALSSIGHT_ASSISTANT_ASR_MODEL = $AsrModel
 $env:VITALSSIGHT_OLLAMA_URL = "http://127.0.0.1:11434"
 $env:VITALSSIGHT_ASSISTANT_ACTIONS_ENABLED = if ($EnableReviewActions) { "true" } else { "false" }
 $ResolvedDbPath = if ($DbPath) { [System.IO.Path]::GetFullPath($DbPath) } else { Join-Path $Runtime "vitalsight_console.db" }
@@ -132,6 +148,8 @@ if (-not $ApiPid -or -not $UiPid) {
     api_url = "http://127.0.0.1:$ApiPort"
     ui_url = "http://127.0.0.1:$UiPort"
     model = $Model
+    vision_model = $VisionModel
+    asr_model = $AsrModel
     actions_enabled = [bool]$EnableReviewActions
     db_path = $ResolvedDbPath
     upload_dir = $ResolvedUploadDir
@@ -141,4 +159,6 @@ if (-not $ApiPid -or -not $UiPid) {
 Write-Output "VitalsSight UI: http://127.0.0.1:$UiPort"
 Write-Output "VitalsSight API: http://127.0.0.1:$ApiPort/docs"
 Write-Output "Assistant model: $Model"
+Write-Output "Vision model: $VisionModel"
+Write-Output "Speech model: $AsrModel"
 Write-Output "Review actions enabled: $([bool]$EnableReviewActions)"

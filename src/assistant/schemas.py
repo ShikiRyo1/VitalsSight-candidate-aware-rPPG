@@ -18,6 +18,11 @@ class AssistantLanguage(str, Enum):
     en = "en"
 
 
+class AssistantMediaKind(str, Enum):
+    audio_transcript = "audio_transcript"
+    image = "image"
+
+
 class ChatTurn(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1, max_length=6000)
@@ -32,6 +37,7 @@ class AssistantChatRequest(BaseModel):
     actor: str = Field(default="research-user", min_length=1, max_length=120)
     conversation_id: str | None = Field(default=None, max_length=160)
     allow_action_proposals: bool = False
+    media_contexts: list["AssistantMediaContext"] = Field(default_factory=list, max_length=2)
 
     @field_validator("message", "actor")
     @classmethod
@@ -39,12 +45,32 @@ class AssistantChatRequest(BaseModel):
         return value.strip()
 
 
+class AssistantMediaContext(BaseModel):
+    """Sanitized, non-authoritative context derived from transient user media."""
+
+    context_id: str = Field(pattern=r"^media_[a-f0-9]{16,64}$")
+    kind: AssistantMediaKind
+    source_label: str = Field(min_length=1, max_length=180)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    summary: str = Field(min_length=1, max_length=2600)
+    visible_text: str = Field(default="", max_length=1800)
+    model: str = Field(default="deterministic-media-intake", max_length=160)
+    safety_flags: list[str] = Field(default_factory=list, max_length=10)
+    authoritative: Literal[False] = False
+    retained: Literal[False] = False
+
+    @field_validator("source_label", "summary", "visible_text", "model")
+    @classmethod
+    def normalize_media_text(cls, value: str) -> str:
+        return " ".join(value.strip().split())
+
+
 class EvidenceReference(BaseModel):
     evidence_id: str
     label: str
     source: str
     value: str = ""
-    kind: Literal["case", "report", "policy", "knowledge", "review", "system"]
+    kind: Literal["case", "report", "policy", "knowledge", "review", "system", "media"]
 
 
 class DecisionSummary(BaseModel):
@@ -107,6 +133,43 @@ class AssistantHealthResponse(BaseModel):
     actions_enabled: bool
     claim_boundary: str
     details: str = ""
+
+
+class MultimodalCapability(BaseModel):
+    available: bool
+    provider: str
+    model: str
+    details: str
+
+
+class AssistantMultimodalHealthResponse(BaseModel):
+    status: Literal["ok", "degraded", "unavailable"]
+    image: MultimodalCapability
+    speech: MultimodalCapability
+    raw_media_retained: Literal[False] = False
+    claim_boundary: str
+
+
+class AudioTranscriptionResponse(BaseModel):
+    transcript: str = Field(min_length=1, max_length=4000)
+    detected_language: str = Field(min_length=1, max_length=24)
+    duration_seconds: float = Field(ge=0)
+    quality: Literal["clear", "uncertain"]
+    context: AssistantMediaContext
+    raw_audio_retained: Literal[False] = False
+    warning_or_boundary: str
+
+
+class ImageAnalysisResponse(BaseModel):
+    summary: str = Field(min_length=1, max_length=2600)
+    visible_text: str = Field(default="", max_length=1800)
+    workflow_relevance: str = Field(default="", max_length=1600)
+    safety_flags: list[str] = Field(default_factory=list, max_length=10)
+    technical_checks: dict[str, str] = Field(default_factory=dict)
+    context: AssistantMediaContext
+    degraded: bool = False
+    raw_image_retained: Literal[False] = False
+    warning_or_boundary: str
 
 
 class AssistantConfirmRequest(BaseModel):

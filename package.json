@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "validate:browser": "node scripts/validate_browser_product.mjs"
+    "validate:browser": "node scripts/validate_browser_product.mjs",
+    "validate:multimodal": "node scripts/validate_multimodal_assistant.mjs"
   },
   "devDependencies": {
     "playwright": "1.61.1"

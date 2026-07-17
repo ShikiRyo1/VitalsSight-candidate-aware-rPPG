@@ -14,7 +14,7 @@ This release contains:
 - protocol-aligned selector, ablation and cross-domain experiment entry points;
 - participant-cluster bootstrap and subject-disjoint risk-audit scripts;
 - partial runtime profiling and the Streamlit research interface;
-- a local, evidence-bounded Qwen assistant with deterministic fallback and explicit action confirmation;
+- a local, evidence-bounded Qwen assistant with typed, voice and image input, deterministic fallback, and explicit action confirmation;
 - protocol descriptors and aggregate manuscript metrics.
 
 This release does **not** contain raw videos, identifiable participant frames, third-party datasets, third-party repositories, model checkpoints, private paths, credentials or internal execution logs. The pinned MediaPipe Face Landmarker runtime asset is installed separately from Google's official model host and verified by SHA256. Dataset access remains governed by the original providers. The software is a research artifact and is not a medical device or a validated autonomous clinical-release system.
@@ -71,16 +71,18 @@ The previous experiment-heavy dashboard is retained at `app/legacy_research_dash
 
 ## Local evidence assistant
 
-The AI assistant is an optional local explanation and workflow layer. It can retrieve case/report evidence, explain release/review/retake, locate quality failures, summarize reports, navigate the console, and prepare a review update that remains inert until a reviewer explicitly confirms it. The assistant cannot estimate or change HR, override the gate, access raw video, diagnose, prescribe, or provide emergency guidance. If Ollama is unavailable, deterministic evidence guidance remains available and the rest of VitalsSight is unaffected.
+The AI assistant is an optional local explanation and workflow layer. It accepts typed questions, locally transcribed voice, and bounded image context; retrieves case/report evidence; explains release/review/retake; locates quality failures; summarizes reports; navigates the console; and can prepare a review update that remains inert until a reviewer explicitly confirms it. The assistant cannot estimate or change HR from media, override the gate, access raw video, identify a person, diagnose, prescribe, or provide emergency guidance. If a model is unavailable, deterministic evidence guidance and modality-specific fallbacks remain available without changing the underlying VitalsSight workflow.
 
 Install Ollama separately, then prepare the CPU-friendly local model and start the complete product:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\setup_local_assistant.py --model qwen3:4b
+.\.venv\Scripts\python.exe -m pip install -r requirements-multimodal.txt
+.\.venv\Scripts\python.exe scripts\setup_multimodal_assistant.py --vision-model qwen3-vl:4b-instruct --asr-model small
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_vitalssight_with_assistant.ps1
 ```
 
-Use `-EnableReviewActions` only in a controlled reviewer test; every proposed update still requires a second confirmation. See [docs/LOCAL_ASSISTANT_SETUP.md](docs/LOCAL_ASSISTANT_SETUP.md), [docs/ASSISTANT_PRODUCT_AND_SAFETY_SPEC.md](docs/ASSISTANT_PRODUCT_AND_SAFETY_SPEC.md), and [docs/CONTROLLED_PILOT_GUIDE.md](docs/CONTROLLED_PILOT_GUIDE.md).
+Voice is converted to an editable transcript with faster-whisper. Images are normalized without metadata and analyzed by `qwen3-vl:4b-instruct`; only hash-bound, non-authoritative context enters chat. Raw audio and image bytes are not retained. Use `-EnableReviewActions` only in a controlled reviewer test; every proposed update still requires a second confirmation. See [docs/MULTIMODAL_ASSISTANT.md](docs/MULTIMODAL_ASSISTANT.md), [docs/LOCAL_ASSISTANT_SETUP.md](docs/LOCAL_ASSISTANT_SETUP.md), [docs/ASSISTANT_PRODUCT_AND_SAFETY_SPEC.md](docs/ASSISTANT_PRODUCT_AND_SAFETY_SPEC.md), and [docs/CONTROLLED_PILOT_GUIDE.md](docs/CONTROLLED_PILOT_GUIDE.md).
 
 Use isolated state for QA or a controlled pilot so that test review actions cannot alter the normal local workspace:
 

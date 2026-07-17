@@ -17,8 +17,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.assistant import AssistantChatRequest, AssistantOrchestrator
-from src.assistant.schemas import AssistantLanguage, AssistantRole, ChatTurn
+from src.assistant import AssistantChatRequest, AssistantOrchestrator, MultimodalAssistantService
+from src.assistant.multimodal import MediaProcessingError
+from src.assistant.schemas import AssistantLanguage, AssistantMediaContext, AssistantRole, ChatTurn
 from src.product.console_api import create_app
 from src.product.console_service import (
     ATTRIBUTION_BOUNDARY,
@@ -194,6 +195,12 @@ def _init_state() -> None:
         "vs_assistant_case": "",
         "vs_assistant_allow_actions": False,
         "vs_assistant_pending_prompt": "",
+        "vs_assistant_media_contexts": [],
+        "vs_assistant_voice_result": None,
+        "vs_assistant_voice_transcript": "",
+        "vs_assistant_image_result": None,
+        "vs_assistant_audio_widget_version": 0,
+        "vs_assistant_image_widget_version": 0,
         "vs_flash": "",
         "vs_flash_kind": "success",
         # Keep the first mobile render interactive; only later workspace changes
@@ -216,6 +223,11 @@ def _store() -> ConsoleStore:
 @st.cache_resource(show_spinner=False)
 def _assistant_engine() -> AssistantOrchestrator:
     return AssistantOrchestrator(ConsoleStore(DB_PATH), db_path=DB_PATH)
+
+
+@st.cache_resource(show_spinner=False)
+def _multimodal_engine() -> MultimodalAssistantService:
+    return MultimodalAssistantService()
 
 
 def _seed_if_empty(store: ConsoleStore) -> None:
@@ -1052,8 +1064,225 @@ def _action_plan_panel(plan: dict[str, Any], *, compact: bool) -> None:
         st.caption(_data_text(plan.get("boundary")))
 
 
+def _set_media_context(raw_context: dict[str, Any]) -> None:
+    context = AssistantMediaContext.model_validate(raw_context)
+    existing = [
+        item
+        for item in st.session_state.get("vs_assistant_media_contexts", [])
+        if str(item.get("kind")) != context.kind.value
+    ]
+    st.session_state["vs_assistant_media_contexts"] = [*existing, context.model_dump(mode="json")][-2:]
+
+
+def _multimodal_intake(multimodal: MultimodalAssistantService) -> None:
+    health = multimodal.health()
+    image_state = _ui("Image ready", "图片就绪") if health.image.available else _ui("Technical fallback", "图片技术降级")
+    speech_state = _ui("Voice ready", "语音就绪") if health.speech.available else _ui("Voice unavailable", "语音不可用")
+    st.markdown(
+        "<div class='vs-modalities'>"
+        f"<div class='{'ready' if health.speech.available else 'degraded'}'><span>{_escape(_ui('VOICE', '语音'))}</span><b>{_escape(speech_state)}</b><small>{_escape(health.speech.model)}</small></div>"
+        f"<div class='{'ready' if health.image.available else 'degraded'}'><span>{_escape(_ui('IMAGE', '图片'))}</span><b>{_escape(image_state)}</b><small>{_escape(health.image.model)}</small></div>"
+        f"<div class='bounded'><span>{_escape(_ui('MEDIA POLICY', '媒体策略'))}</span><b>{_escape(_ui('Transient, non-authoritative context', '临时、非权威上下文'))}</b><small>{_escape(_ui('Raw media is not retained', '不保留原始媒体'))}</small></div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    with st.expander(_ui("Voice and image input", "语音与图片输入"), expanded=False, icon=":material/add_photo_alternate:"):
+        st.caption(
+            _ui(
+                "Review a transcript or image summary before sending it. Media can support workflow guidance only; it cannot measure vitals, identify a person, diagnose, or override the recorded gate.",
+                "发送前请核对转写或图片摘要。媒体只用于工作流引导，不能测量生命体征、识别人、诊断或覆盖系统已记录的门控结果。",
+            )
+        )
+        voice_tab, image_tab = st.tabs([_ui("Voice", "语音"), _ui("Image", "图片")])
+
+        with voice_tab:
+            audio = st.audio_input(
+                _ui("Record a question or instruction", "录制问题或操作要求"),
+                key=f"vs_assistant_audio_{st.session_state['vs_assistant_audio_widget_version']}",
+                disabled=not health.speech.available,
+                help=_ui(
+                    "The recording is transcribed locally and deleted immediately after processing.",
+                    "录音在本机转写，处理后立即删除。",
+                ),
+            )
+            if not health.speech.available:
+                st.info(_ui(health.speech.details, "本地语音转写组件尚未就绪，仍可使用文字输入。"))
+            if audio is not None:
+                if st.button(
+                    _ui("Transcribe locally", "本地转写"),
+                    icon=":material/graphic_eq:",
+                    type="primary",
+                    key="vs_assistant_transcribe",
+                ):
+                    try:
+                        with st.spinner(_ui("Transcribing and checking speech quality...", "正在转写并检查语音质量……")):
+                            result = multimodal.transcribe_audio(
+                                audio.getvalue(),
+                                filename=getattr(audio, "name", "voice.wav") or "voice.wav",
+                                content_type=getattr(audio, "type", "audio/wav") or "audio/wav",
+                                language=AssistantLanguage.zh if _is_zh() else AssistantLanguage.en,
+                            )
+                        st.session_state["vs_assistant_voice_result"] = result.model_dump(mode="json")
+                        st.session_state["vs_assistant_voice_transcript"] = result.transcript
+                        st.rerun()
+                    except MediaProcessingError as error:
+                        st.error(str(error))
+
+            voice_result = st.session_state.get("vs_assistant_voice_result")
+            if voice_result:
+                transcript = st.text_area(
+                    _ui("Review and edit transcript", "核对并编辑转写"),
+                    key="vs_assistant_voice_transcript",
+                    height=110,
+                    max_chars=4000,
+                )
+                quality = str(voice_result.get("quality") or "uncertain")
+                if quality == "uncertain":
+                    st.warning(_ui("Speech quality was uncertain. Correct the transcript before sending.", "语音质量不确定，请在发送前校正转写内容。"))
+                else:
+                    st.success(
+                        _ui(
+                            f"Transcript ready · {voice_result.get('duration_seconds', 0):.1f}s · {voice_result.get('detected_language', 'unknown')}",
+                            f"转写就绪 · {voice_result.get('duration_seconds', 0):.1f} 秒 · {voice_result.get('detected_language', 'unknown')}",
+                        )
+                    )
+                use_voice, clear_voice = st.columns([1, 0.42])
+                if use_voice.button(
+                    _ui("Use transcript as question", "将转写作为问题"),
+                    type="primary",
+                    icon=":material/send:",
+                    width="stretch",
+                    disabled=not bool(transcript.strip()),
+                    key="vs_assistant_use_voice",
+                ):
+                    context = dict(voice_result["context"])
+                    context["summary"] = transcript.strip()
+                    _set_media_context(context)
+                    st.session_state["vs_assistant_pending_prompt"] = transcript.strip()
+                    st.rerun()
+                if clear_voice.button(
+                    _ui("Discard transcript", "丢弃转写"),
+                    icon=":material/close:",
+                    width="stretch",
+                    key="vs_assistant_clear_voice",
+                ):
+                    st.session_state["vs_assistant_voice_result"] = None
+                    st.rerun()
+
+        with image_tab:
+            image_file = st.file_uploader(
+                _ui("Upload a screenshot, report image, or capture frame", "上传界面截图、报告图片或采集帧"),
+                type=["jpg", "jpeg", "png", "webp"],
+                key=f"vs_assistant_image_{st.session_state['vs_assistant_image_widget_version']}",
+                help=_ui(
+                    "The image is normalized in memory, EXIF is removed, and the original is not retained.",
+                    "图片仅在内存中标准化并移除 EXIF，原图不会被保留。",
+                ),
+            )
+            image_question = st.text_input(
+                _ui("What should the assistant focus on?", "希望助手重点看什么？"),
+                placeholder=_ui("For example: explain the visible workflow issue", "例如：解释图中可见的工作流问题"),
+                key="vs_assistant_image_question",
+                max_chars=600,
+            )
+            if image_file is not None:
+                preview_col, action_col = st.columns([1.2, 0.8])
+                preview_col.image(image_file, caption=image_file.name, width="stretch")
+                if action_col.button(
+                    _ui("Analyze safely", "安全分析"),
+                    icon=":material/image_search:",
+                    type="primary",
+                    width="stretch",
+                    key="vs_assistant_analyze_image",
+                ):
+                    try:
+                        with st.spinner(_ui("Removing metadata and analyzing visible content...", "正在移除元数据并分析可见内容……")):
+                            result = multimodal.analyze_image(
+                                image_file.getvalue(),
+                                filename=image_file.name,
+                                content_type=image_file.type or "application/octet-stream",
+                                question=image_question,
+                                language=AssistantLanguage.zh if _is_zh() else AssistantLanguage.en,
+                            )
+                        st.session_state["vs_assistant_image_result"] = result.model_dump(mode="json")
+                        st.rerun()
+                    except MediaProcessingError as error:
+                        st.error(str(error))
+
+            image_result = st.session_state.get("vs_assistant_image_result")
+            if image_result:
+                if image_result.get("degraded"):
+                    st.warning(_ui("Vision model fallback was used; only technical intake checks are available.", "视觉模型已降级；当前仅提供技术接入检查。"))
+                st.markdown(f"**{_ui('Visual summary', '图片摘要')}**  \n{image_result.get('summary', '')}")
+                if image_result.get("workflow_relevance"):
+                    st.caption(f"{_ui('Workflow relevance', '工作流关联')}: {image_result.get('workflow_relevance')}")
+                if image_result.get("visible_text"):
+                    with st.expander(_ui("Visible text (untrusted)", "可见文字（非可信）")):
+                        st.write(image_result.get("visible_text"))
+                checks = image_result.get("technical_checks") or {}
+                if checks:
+                    st.dataframe(
+                        pd.DataFrame(
+                            [{_ui("Check", "检查"): key, _ui("Result", "结果"): value} for key, value in checks.items()]
+                        ),
+                        hide_index=True,
+                        width="stretch",
+                    )
+                attach_col, ask_col, clear_col = st.columns([0.8, 0.9, 0.42])
+                if attach_col.button(
+                    _ui("Attach to next question", "附加到下个问题"),
+                    icon=":material/attach_file:",
+                    width="stretch",
+                    key="vs_assistant_attach_image",
+                ):
+                    _set_media_context(image_result["context"])
+                    _set_flash(_ui("Image context attached. Type a question below.", "图片上下文已附加，请在下方输入问题。"), "info")
+                    st.rerun()
+                if ask_col.button(
+                    _ui("Ask with this image", "结合图片提问"),
+                    icon=":material/send:",
+                    type="primary",
+                    width="stretch",
+                    key="vs_assistant_ask_image",
+                ):
+                    _set_media_context(image_result["context"])
+                    st.session_state["vs_assistant_pending_prompt"] = image_question.strip() or _ui(
+                        "Explain how this image relates to the VitalsSight workflow and what the user should do next.",
+                        "解释这张图片与 VitalsSight 工作流的关系，以及用户下一步应该做什么。",
+                    )
+                    st.rerun()
+                if clear_col.button(
+                    _ui("Clear", "清除"),
+                    icon=":material/close:",
+                    width="stretch",
+                    key="vs_assistant_clear_image",
+                ):
+                    st.session_state["vs_assistant_image_result"] = None
+                    st.session_state["vs_assistant_image_widget_version"] += 1
+                    st.rerun()
+
+    attached = st.session_state.get("vs_assistant_media_contexts", [])
+    if attached:
+        labels = ", ".join(
+            _ui("voice transcript", "语音转写") if item.get("kind") == "audio_transcript" else _ui("image context", "图片上下文")
+            for item in attached
+        )
+        status_col, clear_col = st.columns([1, 0.22])
+        status_col.info(_ui(f"Attached to the next question: {labels}", f"已附加到下个问题：{labels}"))
+        if clear_col.button(
+            _ui("Remove", "移除"),
+            icon=":material/link_off:",
+            width="stretch",
+            key="vs_assistant_remove_media",
+        ):
+            st.session_state["vs_assistant_media_contexts"] = []
+            st.rerun()
+
+
 def _assistant(store: ConsoleStore) -> None:
     engine = _assistant_engine()
+    multimodal = _multimodal_engine()
     health = engine.health()
     ready = health.model_available
     status_class = "ready" if ready else "degraded"
@@ -1081,6 +1310,7 @@ def _assistant(store: ConsoleStore) -> None:
         f"<b>{_escape(_ui('The assistant explains and navigates; it cannot override the gate.', '助手负责解释与导航，不能覆盖门控决策。'))}</b></div></div>",
         unsafe_allow_html=True,
     )
+    _multimodal_intake(multimodal)
 
     cases = store.list_cases()
     case_lookup = {str(case["case_id"]): case for case in cases}
@@ -1160,6 +1390,7 @@ def _assistant(store: ConsoleStore) -> None:
         key="vs_assistant_clear",
     ):
         st.session_state["vs_assistant_history"] = []
+        st.session_state["vs_assistant_media_contexts"] = []
         st.rerun()
 
     for index, entry in enumerate(history):
@@ -1167,6 +1398,15 @@ def _assistant(store: ConsoleStore) -> None:
         with st.chat_message(role_name):
             if role_name == "user":
                 st.markdown(str(entry.get("content") or ""))
+                media_items = entry.get("media_contexts") or []
+                if media_items:
+                    labels = ", ".join(
+                        _ui("voice transcript", "语音转写")
+                        if item.get("kind") == "audio_transcript"
+                        else _ui("image context", "图片上下文")
+                        for item in media_items
+                    )
+                    st.caption(_ui(f"Transient context: {labels}", f"临时上下文：{labels}"))
             else:
                 payload = entry.get("response") or {}
                 st.markdown(str(payload.get("answer") or entry.get("content") or ""))
@@ -1250,12 +1490,22 @@ def _assistant(store: ConsoleStore) -> None:
     queued = str(st.session_state.pop("vs_assistant_pending_prompt", "") or "")
     prompt = queued or prompt
     if prompt:
+        media_contexts = [
+            AssistantMediaContext.model_validate(item)
+            for item in st.session_state.get("vs_assistant_media_contexts", [])
+        ]
         prior_turns = [
             ChatTurn(role=item["role"], content=str(item.get("content") or (item.get("response") or {}).get("answer") or ""))
             for item in history[-8:]
             if item.get("role") in {"user", "assistant"}
         ]
-        history.append({"role": "user", "content": prompt})
+        history.append(
+            {
+                "role": "user",
+                "content": prompt,
+                "media_contexts": [item.model_dump(mode="json") for item in media_contexts],
+            }
+        )
         request = AssistantChatRequest(
             message=prompt,
             case_id=selected_case or None,
@@ -1265,12 +1515,14 @@ def _assistant(store: ConsoleStore) -> None:
             actor=st.session_state["vs_operator"],
             conversation_id=st.session_state.get("vs_assistant_conversation_id"),
             allow_action_proposals=bool(allow_actions),
+            media_contexts=media_contexts,
         )
         with st.spinner(_ui("Checking evidence and composing a bounded answer...", "正在核对证据并生成受约束回答……")):
             response = engine.chat(request)
         st.session_state["vs_assistant_conversation_id"] = response.conversation_id
         history.append({"role": "assistant", "content": response.answer, "response": response.model_dump(mode="json")})
         st.session_state["vs_assistant_history"] = history
+        st.session_state["vs_assistant_media_contexts"] = []
         st.rerun()
 
 
@@ -1347,7 +1599,10 @@ def _integrations(store: ConsoleStore) -> None:
                 ["PUT", "/api/v1/reviews/{case_id}", _ui("Review update", "复核更新")],
                 ["GET", "/api/v1/cases/{case_id}/report?format=pdf", _ui("PDF report", "PDF 报告")],
                 ["GET", "/api/v1/assistant/health", _ui("Local model and fallback health", "本地模型与降级状态")],
+                ["GET", "/api/v1/assistant/multimodal/health", _ui("Image and speech capability health", "图片与语音能力状态")],
                 ["POST", "/api/v1/assistant/chat", _ui("Evidence-bounded assistant response", "基于证据的助手回答")],
+                ["POST", "/api/v1/assistant/transcribe", _ui("Transient local speech transcription", "临时本地语音转写")],
+                ["POST", "/api/v1/assistant/analyze-image", _ui("Transient bounded image analysis", "临时受约束图片分析")],
                 ["POST", "/api/v1/assistant/confirm", _ui("Explicitly confirm a pending review update", "明确确认待处理复核更新")],
                 ["POST", "/api/v1/assistant/reject", _ui("Reject a pending review update", "拒绝待处理复核更新")],
             ],
@@ -2001,6 +2256,15 @@ def _inject_css() -> None:
         .vs-assistant-contract > div { background:var(--paper); padding:0.7rem 0.86rem; }
         .vs-assistant-contract span { display:block; color:var(--primary); font-size:0.64rem; font-weight:800; }
         .vs-assistant-contract b { display:block; color:var(--ink-soft); font-size:0.76rem; line-height:1.45; margin-top:0.18rem; }
+        .vs-modalities { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0.6rem; margin:0.2rem 0 0.85rem; }
+        .vs-modalities > div { position:relative; min-height:74px; border:1px solid var(--line); border-top:3px solid var(--primary); background:#fff; border-radius:7px; padding:0.62rem 0.72rem; box-shadow:0 3px 12px rgba(32,58,70,0.03); }
+        .vs-modalities > div.ready { border-top-color:var(--teal); }
+        .vs-modalities > div.degraded { border-top-color:var(--review); }
+        .vs-modalities > div.bounded { border-top-color:var(--primary); background:var(--primary-soft); }
+        .vs-modalities span, .vs-modalities b, .vs-modalities small { display:block; }
+        .vs-modalities span { color:var(--muted); font-size:0.61rem; font-weight:800; letter-spacing:0; }
+        .vs-modalities b { color:var(--ink); font-size:0.78rem; margin-top:0.18rem; line-height:1.3; }
+        .vs-modalities small { color:var(--muted); font-size:0.66rem; margin-top:0.14rem; overflow-wrap:anywhere; }
         [data-testid="stChatMessage"] { border:1px solid var(--line); border-radius:7px; background:var(--paper); padding:0.25rem 0.55rem; box-shadow:0 3px 12px rgba(32,58,70,0.035); }
         [data-testid="stChatMessage"] + [data-testid="stChatMessage"] { margin-top:0.55rem; }
         [data-testid="stChatInput"] { border-color:var(--line-strong); }
@@ -2038,6 +2302,7 @@ def _inject_css() -> None:
             .vs-workflow-band li:nth-child(4) { border-top:1px solid var(--line); }
             .vs-step-strip, .vs-guidance-grid, .vs-io-strip, .vs-processing-contract { grid-template-columns: 1fr; }
             .vs-assistant-contract { grid-template-columns:1fr; }
+            .vs-modalities { grid-template-columns:1fr; }
             .vs-step-strip div { border-right: 0; border-bottom: 1px solid var(--line); }
             .vs-step-strip div:last-child { border-bottom: 0; }
             .vs-env { grid-template-columns:1fr; }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass, field
 import json
 import os
@@ -39,6 +40,21 @@ class ChatProvider(Protocol):
         messages: list[dict[str, Any]],
         *,
         tools: list[dict[str, Any]] | None = None,
+        response_schema: dict[str, Any] | None = None,
+    ) -> ProviderReply: ...
+
+
+class VisionProvider(Protocol):
+    provider_name: str
+    model: str
+
+    def status(self) -> ProviderStatus: ...
+
+    def analyze(
+        self,
+        image_bytes: bytes,
+        prompt: str,
+        *,
         response_schema: dict[str, Any] | None = None,
     ) -> ProviderReply: ...
 
@@ -120,6 +136,52 @@ class OllamaProvider:
             if function.get("name"):
                 parsed_calls.append(ProviderToolCall(str(function["name"]), dict(arguments)))
         return ProviderReply(content=str(message.get("content") or ""), tool_calls=tuple(parsed_calls))
+
+
+class OllamaVisionProvider(OllamaProvider):
+    """Bounded vision sidecar using Ollama's documented base64 image API."""
+
+    provider_name = "ollama-vision"
+
+    def __init__(
+        self,
+        *,
+        base_url: str | None = None,
+        model: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        super().__init__(
+            base_url=base_url,
+            model=model or os.getenv("VITALSSIGHT_ASSISTANT_VISION_MODEL") or "qwen3-vl:4b-instruct",
+            timeout_seconds=timeout_seconds or float(os.getenv("VITALSSIGHT_VISION_TIMEOUT", "180")),
+        )
+
+    def analyze(
+        self,
+        image_bytes: bytes,
+        prompt: str,
+        *,
+        response_schema: dict[str, Any] | None = None,
+    ) -> ProviderReply:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                    "images": [base64.b64encode(image_bytes).decode("ascii")],
+                }
+            ],
+            "stream": False,
+            "think": False,
+            "keep_alive": "20m",
+            "options": {"temperature": 0.0, "top_p": 0.8, "num_ctx": 8192, "num_predict": 768},
+        }
+        if response_schema:
+            payload["format"] = response_schema
+        result = self._request("/api/chat", payload)
+        message = result.get("message") or {}
+        return ProviderReply(content=str(message.get("content") or ""))
 
 
 class UnavailableProvider:
