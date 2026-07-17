@@ -204,6 +204,14 @@ def _action_plan_rows(tool_results: list[dict[str, Any]]) -> list[dict[str, Any]
 
 def _safe_noncausal_statement(clause: str, alias: str) -> bool:
     escaped = re.escape(alias)
+    aggregate_safe = (
+        r"(?:all|the following|these|other|remaining).{0,220}"
+        r"(?:passed|within (?:the )?target|met (?:the )?(?:target|threshold)|not (?:a )?(?:cause|trigger))|"
+        r"(?:均|全部|这些|以下|其余).{0,220}"
+        r"(?:目标范围内|目标内|已通过|通过|达标|未被列为原因|不是.{0,12}原因)"
+    )
+    if re.search(aggregate_safe, clause, flags=re.IGNORECASE):
+        return True
     safe_after = (
         r"within (?:the )?target|passed|met (?:the )?(?:documented )?(?:target|threshold)|"
         r"satisfied (?:the )?(?:target|threshold)|(?:was|is) sufficient|"
@@ -216,8 +224,8 @@ def _safe_noncausal_statement(clause: str, alias: str) -> bool:
     )
     safe_before = (
         r"within (?:the )?target|passed|not caused by|not triggered by|not driven by|"
-        r"not entered|not evaluated|unavailable|"
-        r"目标内|已通过|达标|不是由|并非由|未由|未进入|未评估|不可用"
+        r"not entered|not evaluated|unavailable|before|prior to|"
+        r"目标内|已通过|达标|不是由|并非由|未由|未进入|未评估|不可用|在.{0,12}之前"
     )
     return bool(
         re.search(rf"{escaped}.{{0,55}}(?:{safe_after})", clause, flags=re.IGNORECASE)
@@ -250,7 +258,7 @@ def causal_alignment_error(answer: str, tool_results: list[dict[str, Any]]) -> s
     clauses = [
         item.strip()
         for item in re.split(
-            r"[.!?;。！？；\n]+|\b(?:but|while|whereas|although)\b|(?:但是|但|而|同时|且)",
+            r"[,.!?;，。！？；\n]+|\b(?:but|while|whereas|although)\b|(?:但是|但|而|同时|且)",
             answer.lower(),
             flags=re.IGNORECASE,
         )

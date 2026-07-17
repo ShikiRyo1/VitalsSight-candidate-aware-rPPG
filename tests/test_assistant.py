@@ -547,6 +547,39 @@ def test_retake_may_describe_unentered_candidate_stage_as_an_effect(tmp_path: Pa
     assert result.degraded is False
 
 
+def test_retake_may_describe_failure_as_preceding_candidate_construction(tmp_path: Path) -> None:
+    case = duration_only_retake_case()
+    provider = ScriptedProvider(
+        "This failure occurred before candidate construction began; HR remains withheld [E1].",
+        used_ids=["E1"],
+    )
+    engine = AssistantOrchestrator(store_with_case(tmp_path / "retake-before-stage.db", case), provider=provider)
+    result = engine.chat(request(case["case_id"], "What happened after the duration failure?"))
+    assert result.provider == "scripted"
+    assert result.degraded is False
+
+
+def test_chinese_aggregate_list_can_exclude_all_passing_checks(tmp_path: Path) -> None:
+    case = stable_case()
+    case.update(
+        case_id="track_review_chinese_aggregate",
+        display_id="VS-TRACK-ZH",
+        decision="review",
+        released_hr_bpm=None,
+        competing_track_count=3,
+        review_reason="Competing cross-window candidate tracks remain plausible.",
+        recommended_action="Keep the competing tracks linked to the case and route them to review.",
+    )
+    provider = ScriptedProvider(
+        "时长、帧率、分辨率、光照、运动和候选一致性均处于目标范围内且未被列为原因，心率保持不发布 [E1]。",
+        used_ids=["E1"],
+    )
+    engine = AssistantOrchestrator(store_with_case(tmp_path / "review-zh-aggregate.db", case), provider=provider)
+    result = engine.chat(request(case["case_id"], "哪些检查不是原因？", language=AssistantLanguage.zh))
+    assert result.provider == "scripted"
+    assert result.degraded is False
+
+
 def test_selected_case_with_incomplete_model_sections_falls_back(tmp_path: Path) -> None:
     provider = ScriptedProvider(
         "The recorded state is review and HR remains withheld [E1].",
