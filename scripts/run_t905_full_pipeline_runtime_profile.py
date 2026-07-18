@@ -100,12 +100,12 @@ def markdown_table(frame: pd.DataFrame, max_rows: int = 80) -> str:
 
 
 def discover_video_cases() -> list[VideoCase]:
-    roots = [
-        Path("/root/autodl-tmp/datasets"),
-        Path("H:/科研/contactless_vitals_project/datasets"),
-        Path("H:/科研/datasets"),
-        ROOT / "datasets",
-    ]
+    roots = []
+    if os.environ.get("CONTACTLESS_DATA_ROOT"):
+        roots.append(Path(os.environ["CONTACTLESS_DATA_ROOT"]))
+    if os.environ.get("ADULT_DATA_ROOT"):
+        roots.append(Path(os.environ["ADULT_DATA_ROOT"]).parent)
+    roots.append(ROOT / "datasets")
     candidates: list[VideoCase] = []
     for root in roots:
         if not root.exists():

@@ -30,7 +30,7 @@ product = [
   "uvicorn",
 ]
 dev = [
-  "httpx2",
+  "httpx>=0.27,<1",
   "pytest>=8",
 ]
 

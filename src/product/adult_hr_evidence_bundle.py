@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -300,11 +301,12 @@ def dataset_coverage_gate(paths: ProductEvidencePaths, t455: dict[str, Any]) -> 
         "CMU-rPPG-biases",
         "small-rPPG-Empatica",
     ]
-    candidate_roots = [
-        paths.root.parent / "datasets" / "adult",
-        Path("/root/autodl-tmp/datasets/adult"),
-        Path("H:/科研/数据集"),
-    ]
+    candidate_roots = []
+    if os.environ.get("ADULT_DATA_ROOT"):
+        candidate_roots.append(Path(os.environ["ADULT_DATA_ROOT"]))
+    if os.environ.get("CONTACTLESS_DATA_ROOT"):
+        candidate_roots.append(Path(os.environ["CONTACTLESS_DATA_ROOT"]) / "adult")
+    candidate_roots.append(paths.root.parent / "datasets" / "adult")
     for root in candidate_roots:
         if not root.exists():
             continue

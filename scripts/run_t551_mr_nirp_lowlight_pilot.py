@@ -21,7 +21,12 @@ ROOT = Path(__file__).resolve().parents[1]
 TASK_ID = "T551"
 EXP = ROOT / "experiments"
 DOCS = ROOT / "docs"
-DATA_ROOT = Path(os.environ.get("ADULT_DATA_ROOT", "/root/autodl-tmp/datasets/adult"))
+DATA_ROOT = Path(
+    os.environ.get(
+        "ADULT_DATA_ROOT",
+        Path(os.environ.get("CONTACTLESS_DATA_ROOT", ROOT / "datasets")) / "adult",
+    )
+)
 MR_ROOT = Path(os.environ.get("MR_NIRP_ROOT", DATA_ROOT / "MR-NIRP"))
 
 MAX_CONDITIONS = int(os.environ.get("MR_NIRP_MAX_CONDITIONS", "8"))

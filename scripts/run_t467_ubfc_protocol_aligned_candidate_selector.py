@@ -5,6 +5,7 @@ import csv
 import glob
 import json
 import math
+import os
 import pickle
 import sys
 from datetime import date, datetime
@@ -48,8 +49,18 @@ EXP = ROOT / "experiments"
 DOCS = ROOT / "docs"
 OUTPUT = ROOT / "output" / "t467_figures"
 
-REMOTE_DATA_ROOT = Path("/root/autodl-tmp/datasets/adult/UBFC-rPPG/kaggle_extracted")
-LOCAL_DATA_ROOT = ROOT.parent / "数据集" / "adult" / "UBFC-rPPG" / "kaggle_extracted"
+DEFAULT_ADULT_DATA_ROOT = Path(
+    os.environ.get(
+        "ADULT_DATA_ROOT",
+        Path(os.environ.get("CONTACTLESS_DATA_ROOT", ROOT / "datasets")) / "adult",
+    )
+)
+UBFC_DATA_ROOT = Path(
+    os.environ.get(
+        "UBFC_RPPG_ROOT",
+        DEFAULT_ADULT_DATA_ROOT / "UBFC-rPPG" / "kaggle_extracted",
+    )
+)
 CLIP_LEN = 180
 
 PEAKS_CSV = EXP / "t467_ubfc_protocol_window_peak_table.csv"
@@ -139,11 +150,12 @@ def tscan_pickle_path() -> Path:
 
 
 def data_root() -> Path:
-    if REMOTE_DATA_ROOT.exists():
-        return REMOTE_DATA_ROOT
-    if LOCAL_DATA_ROOT.exists():
-        return LOCAL_DATA_ROOT
-    raise FileNotFoundError(f"UBFC root not found: {REMOTE_DATA_ROOT} or {LOCAL_DATA_ROOT}")
+    if UBFC_DATA_ROOT.exists():
+        return UBFC_DATA_ROOT
+    raise FileNotFoundError(
+        "UBFC root not found. Set UBFC_RPPG_ROOT or ADULT_DATA_ROOT; "
+        f"resolved path: {UBFC_DATA_ROOT}"
+    )
 
 
 def subject_number(subject_key: str) -> int:

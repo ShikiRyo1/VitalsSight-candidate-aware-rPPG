@@ -75,10 +75,12 @@ def markdown_table(frame: pd.DataFrame, max_rows: int = 80) -> str:
 
 
 def discover_cases(max_mcd: int = 8, include_large: bool = True) -> list[dict[str, str]]:
-    roots = [
-        Path("/root/autodl-tmp/datasets"),
-        ROOT / "datasets",
-    ]
+    roots = []
+    if os.environ.get("CONTACTLESS_DATA_ROOT"):
+        roots.append(Path(os.environ["CONTACTLESS_DATA_ROOT"]))
+    if os.environ.get("ADULT_DATA_ROOT"):
+        roots.append(Path(os.environ["ADULT_DATA_ROOT"]).parent)
+    roots.append(ROOT / "datasets")
     rows: list[dict[str, str]] = []
     for root in roots:
         mcd_video = root / "adult" / "MCD-rPPG" / "video"
