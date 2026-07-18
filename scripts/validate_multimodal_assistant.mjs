@@ -318,16 +318,22 @@ try {
   if (videoPath) {
     await ensureExpanderOpen(page);
     await page.getByRole("tab", { name: "Video full workflow", exact: true }).click();
-    const consent = page.getByRole("checkbox", {
+    let consent = page.getByRole("checkbox", {
       name: "I confirm this recording may be processed for the selected research purpose.",
       exact: true,
     });
     if (!(await consent.isChecked())) {
-      await consent.check({ force: true });
+      await consent.click({ force: true });
+      await page.waitForTimeout(500);
       await waitForStreamlitIdle(page);
       await ensureExpanderOpen(page);
       await page.getByRole("tab", { name: "Video full workflow", exact: true }).click();
+      consent = page.getByRole("checkbox", {
+        name: "I confirm this recording may be processed for the selected research purpose.",
+        exact: true,
+      });
     }
+    check("video consent is explicitly recorded", await consent.isChecked());
     const videoInput = await findVideoFileInput(page);
     await videoInput.setInputFiles(path.resolve(videoPath));
     const videoInstruction = page.getByRole("textbox", { name: "What should the assistant return?", exact: true });

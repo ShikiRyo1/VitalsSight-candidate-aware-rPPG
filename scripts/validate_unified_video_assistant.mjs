@@ -95,7 +95,8 @@ try {
     exact: true,
   });
   if (!(await consent.isChecked())) {
-    await consent.check({ force: true });
+    await consent.click({ force: true });
+    await page.waitForTimeout(500);
     await waitForIdle(page);
     await page.getByRole("tab", { name: "Video full workflow", exact: true }).click();
     consent = page.getByRole("checkbox", {

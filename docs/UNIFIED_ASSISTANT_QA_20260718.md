@@ -35,6 +35,6 @@ The browser workflow uses a real local speech recording, an authorized non-ident
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
-npm run validate:multimodal -- http://127.0.0.1:8502 http://127.0.0.1:8011 output\unified_assistant_acceptance_20260718\browser_final
-npm run validate:unified-video -- http://127.0.0.1:8502 http://127.0.0.1:8011 runtime\private_validation\8555_retake_first5s.avi output\unified_assistant_acceptance_20260718\video_focused_r4
+npm run validate:multimodal -- http://127.0.0.1:8502 http://127.0.0.1:8011 output\controlled_trial_final_20260717\multimodal\real_authorized_frame.png output\unified_assistant_acceptance_20260718\browser_final output\real_data_full_acceptance_20260717\multimodal\review_question.wav runtime\private_validation\8555_retake_first5s.avi
+npm run validate:unified-video -- http://127.0.0.1:8502 runtime\private_validation\8555_retake_first5s.avi output\unified_assistant_acceptance_20260718\video_focused_r4
 ```
