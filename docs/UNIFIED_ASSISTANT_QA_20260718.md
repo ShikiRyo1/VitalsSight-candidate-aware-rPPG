@@ -8,7 +8,7 @@ This acceptance pass covers the single-interface assistant workflow for typed qu
 
 | Layer | Result | Evidence |
 |---|---:|---|
-| Python unit and API suite | 128/128 passed | `pytest -q` |
+| Python unit and API suite | 129/129 passed | `pytest -q` |
 | Full product browser matrix | 171/171 passed | `output/unified_assistant_acceptance_20260718/browser_validation_manifest.json` |
 | Real multimodal browser workflow | 36/36 passed | `output/unified_assistant_acceptance_20260718/browser_final` |
 | Focused real-video assistant workflow | 10/10 passed | `output/unified_assistant_acceptance_20260718/video_focused_final` |

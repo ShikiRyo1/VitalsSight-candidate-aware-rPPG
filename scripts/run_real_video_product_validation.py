@@ -467,6 +467,16 @@ def run_api_cases(
     return {"cases": rows, "negative_http": negative}
 
 
+def execution_replay_description(direct_repeats: int) -> str:
+    if direct_repeats < 1:
+        raise ValueError("direct_repeats must be at least 1")
+    occurrence = "time" if direct_repeats == 1 else "times"
+    return (
+        f"each fixture ran {direct_repeats} {occurrence} through the direct backend "
+        "and once through the API"
+    )
+
+
 def write_outputs(
     output_dir: Path,
     manifest: dict[str, Any],
@@ -604,6 +614,13 @@ def write_outputs(
         state: sum(row["observed_decision"] == state for row in run_rows)
         for state in ("release", "review", "retake")
     }
+    direct_repeat_counts = {
+        len(direct[spec["case_id"]]["runs"])
+        for spec in manifest["cases"]
+    }
+    if len(direct_repeat_counts) != 1:
+        raise ValueError("Every fixture must have the same number of direct-backend repeats")
+    direct_repeats = direct_repeat_counts.pop()
 
     lines = [
         "# VitalsSight real-video research implementation validation",
@@ -616,7 +633,7 @@ def write_outputs(
         "",
         "- Design: post hoc curated regression/conformance replay. Cases were selected during development; expected states and fixture hashes were recorded in the manifest before this final replay.",
         f"- Fixtures: {len(case_rows)} ({fixture_state_counts['release']} release, {fixture_state_counts['review']} review, {fixture_state_counts['retake']} retake).",
-        f"- Executions: {len(run_rows)} ({execution_state_counts['release']} release, {execution_state_counts['review']} review, {execution_state_counts['retake']} retake); each fixture ran twice through the direct backend and once through the API.",
+        f"- Executions: {len(run_rows)} ({execution_state_counts['release']} release, {execution_state_counts['review']} review, {execution_state_counts['retake']} retake); {execution_replay_description(direct_repeats)}.",
         f"- Execution-level contract matches: {sum(bool(row['passed']) for row in run_rows)}/{len(run_rows)}.",
         "- Per-execution decisions, elapsed times, released values and failures are recorded in `run_level_results.csv`.",
         "",

@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import scripts.setup_runtime_assets as runtime_assets
+from scripts.run_real_video_product_validation import execution_replay_description
 from src.data.video_io import get_video_metadata
 from src.product.console_api import create_app
 from src.product.console_service import (
@@ -38,6 +39,15 @@ from src.product.identity import local_identity
 from src.product.adult_hr_mvp import AdultHRMVPConfig, build_release_windows, detector_is_release_eligible
 from src.product.build_identity import path_fingerprint, source_build_identity
 from src.vision.face_mesh_roi import resolve_face_landmarker_model_path, validate_face_landmarker_model
+
+
+def test_real_video_report_describes_direct_and_api_execution_counts() -> None:
+    assert execution_replay_description(1) == (
+        "each fixture ran 1 time through the direct backend and once through the API"
+    )
+    assert execution_replay_description(2) == (
+        "each fixture ran 2 times through the direct backend and once through the API"
+    )
 
 
 def test_non_release_never_publishes_hr() -> None:
