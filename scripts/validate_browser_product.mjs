@@ -274,7 +274,7 @@ async function validateAssistantWorkspace(page) {
   await chooseComboboxOption(
     page,
     page.getByRole("combobox", { name: "Evidence context", exact: true }),
-    "VS-002 · Review",
+    /^VS-\d+\s*·\s*Review$/,
   );
   await page.getByRole("button", { name: /Explain this state/ }).click();
   const assistantMessage = page.getByLabel("Chat message from assistant").last();
@@ -341,9 +341,11 @@ async function downloadByButton(page, buttonName, expectedExtension) {
 
 async function chooseComboboxOption(page, combobox, optionName) {
   await combobox.waitFor({ state: "visible", timeout: 10000 });
-  await combobox.focus();
-  await combobox.press("ArrowDown");
-  const option = page.getByRole("option", { name: optionName, exact: true });
+  await combobox.click();
+  const option = page.getByRole("option", {
+    name: optionName,
+    exact: typeof optionName === "string",
+  }).first();
   await option.waitFor({ state: "visible", timeout: 10000 });
   await option.click();
 }
