@@ -14,12 +14,15 @@ The scientific programs in `scripts/` are byte-identical copies of the frozen ma
 - `scripts/freeze_v32_causal_candidate_path.py`: fit and serialize the development-selected V32 path without accessing external outcomes.
 - `scripts/run_v32_frozen_candidate_path_inference.py`: run the frozen candidate path on an outcome-free candidate pool with relation-parity and forbidden-field checks.
 - `scripts/v32_candidate_relations.py`: prediction-only relation-feature construction used by frozen inference.
+- `scripts/train_v31_frozen_release_gate.py`: exact development-only fitting program for the separately frozen three-seed ExtraTrees release/review research score.
+- `scripts/run_v31_frozen_candidate_selector_inference.py`: exact pre-outcome selector and release-gate inference program used for the prospectively frozen EMPD run.
 - `scripts/build_v32_internal_core_evidence.py`: participant-equal internal endpoints, participant bootstrap intervals, paired effects, Table 2 source data, and Figure 2 exports.
 - `scripts/evaluate_v32_empd_posthoc_fixed_replay.py`: fixed-model EMPD replay evaluation from an outcome-free frozen prediction ledger plus authorized reference and comparator files.
 - `scripts/audit_v32_empd_posthoc_fixed_replay.py`: independent EMPD endpoint and paired-inference audit using independent random seeds.
 - `frozen_aggregates/`: exact aggregate-only outputs used to check the manuscript numbers and claim boundaries.
 - `schemas/`: header-only input templates. They contain no observations, subject identifiers, reference values, or provider labels.
 - `contracts/v32_internal_training_contract.json`: path-free machine-readable denominator, split, seed, selector, transition and claim-boundary contract.
+- `contracts/v31_release_gate_contract_public.json`: path-free threshold rule, feature allow-list, script hashes and frozen gate-model hashes; model binaries and participant data are not redistributed.
 - `expected_headline_metrics.json`: machine-readable expected point estimates and inferential roles.
 - `SHA256SUMS.txt`: hashes for every packaged file except the checksum file itself.
 
@@ -68,6 +71,8 @@ python scripts\run_v31_nested_candidate_vs_stacking.py --help
 python scripts\run_v32_causal_candidate_path.py --help
 python scripts\freeze_v32_causal_candidate_path.py --help
 python scripts\run_v32_frozen_candidate_path_inference.py --help
+python scripts\train_v31_frozen_release_gate.py --help
+python scripts\run_v31_frozen_candidate_selector_inference.py --help
 ```
 
 Each program requires explicit input and output paths and refuses label-derived inference fields. Dataset records and provider-controlled ledgers are deliberately not included in this repository.
@@ -140,6 +145,8 @@ The prospectively frozen V31 EMPD result is the external primary evidence: parti
 The V32 EMPD replay is post hoc consistency evidence only because EMPD outcomes had already been viewed before V32 was designed. Its MAE is `3.952243633625411` BPM. It cannot replace the prespecified V31 external test or support a new untouched-external claim.
 
 The release/review score is not a calibrated safety probability. Proposed release covered 42 of 2,120 EMPD windows and did not establish clinical safety, autonomous release, or clinical utility.
+
+The exact output-state rule is documented in `contracts/v31_release_gate_contract_public.json`. Its threshold was fixed at `0.0`, the empirical 20th percentile of cross-fitted development research-risk scores, before EMPD reference outcomes were accessed. The JSON records the three model hashes and the hashes of the exact fitting and frozen-inference scripts, while excluding local paths and provider-controlled model binaries.
 
 ## Reproducibility boundary
 

@@ -78,7 +78,29 @@ def verify_contract() -> list[str]:
     require(contract["inference_guards"]["reference_hr_never_enters_candidate_scoring"] is True, "reference guard")
     require(contract["inference_guards"]["label_derived_features_forbidden"] is True, "label guard")
     require(contract["inference_guards"]["external_outcomes_accessed"] is False, "external-outcome guard")
-    return ["denominator and participant-split contract", "inference feature and outcome guards"]
+
+    gate = json.loads(
+        (ROOT / "contracts/v31_release_gate_contract_public.json").read_text(encoding="utf-8")
+    )
+    require(gate["status"] == "FROZEN_DEVELOPMENT_RELEASE_GATE", "release-gate status")
+    require(gate["proposed_release_threshold"] == 0.0, "release-gate threshold")
+    require(gate["seeds"] == [704, 1704, 2704], "release-gate seeds")
+    require(gate["feature_count"] == 43, "release-gate feature count")
+    require(len(gate["feature_columns"]) == 43, "release-gate feature allow-list")
+    require(gate["relation_features_enabled"] is False, "release-gate relation guard")
+    require(gate["research_score_not_probability"] is True, "release-gate interpretation guard")
+    require(gate["no_calibrated_safety_claim"] is True, "release-gate safety-claim guard")
+    require(gate["external_outcomes_accessed_during_freeze"] is False, "release-gate outcome guard")
+    for key in ("training_script", "frozen_inference_script"):
+        record = gate[key]
+        require(sha256(ROOT / record["file"]) == record["sha256"], f"{key} hash")
+    require([model["seed"] for model in gate["models"]] == [704, 1704, 2704], "gate model seeds")
+    require(all(len(model["sha256"]) == 64 for model in gate["models"]), "gate model hashes")
+    return [
+        "denominator and participant-split contract",
+        "inference feature and outcome guards",
+        "path-free frozen release-gate threshold, feature and hash contract",
+    ]
 
 
 def verify_metrics() -> list[str]:

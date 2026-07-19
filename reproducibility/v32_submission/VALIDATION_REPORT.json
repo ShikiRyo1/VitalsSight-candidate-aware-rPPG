@@ -12,7 +12,9 @@
     {"script": "run_v32_causal_candidate_path.py", "sha256": "D14DC5056F8391262F38C3A5DB78FD61FC7F77A88AD0AA7115A699DADFD67247", "byte_identical_to_frozen_source": true},
     {"script": "freeze_v32_causal_candidate_path.py", "sha256": "3F2C2E60912B41936A2B21DEF8B094C5BA2FC1FF00FB3A1BCC521303F715BBCC", "byte_identical_to_frozen_source": true},
     {"script": "run_v32_frozen_candidate_path_inference.py", "sha256": "C394658BD9AA2651BFEE7B98878A917C9F1B7488C3EF32213BE6A1C0BAACDBDC", "byte_identical_to_frozen_source": true},
-    {"script": "v32_candidate_relations.py", "sha256": "82D444C4B21C365902DA971DC0CB09656ADB5B772A58621B69F479E0CF00D651", "byte_identical_to_frozen_source": true}
+    {"script": "v32_candidate_relations.py", "sha256": "82D444C4B21C365902DA971DC0CB09656ADB5B772A58621B69F479E0CF00D651", "byte_identical_to_frozen_source": true},
+    {"script": "train_v31_frozen_release_gate.py", "sha256": "264D772FDD678EDDF21F68E0077605C3493FD412413ACCFFF5744C14856F3B09", "byte_identical_to_frozen_source": true},
+    {"script": "run_v31_frozen_candidate_selector_inference.py", "sha256": "9D7CC2F8B5BBC503B61DAC318642C39C4F71520F93EC8A2DE6506C383A6D8EC6", "byte_identical_to_frozen_source": true}
   ],
   "scans": {
     "private_absolute_path_literals": 0,
@@ -23,17 +25,21 @@
     "header_only_schema_templates_with_participant_fields": 1
   },
   "python_validation": {
-    "py_compile_files": 12,
+    "py_compile_files": 14,
     "py_compile_status": "PASS",
-    "cli_help_entrypoints_tested": 10,
+    "cli_help_entrypoints_tested": 12,
     "cli_help_status": "PASS"
   },
   "contract_validation": {
     "denominator_and_participant_split": "PASS",
     "reference_and_label_feature_guards": "PASS",
-    "external_outcomes_accessed": false
+    "external_outcomes_accessed": false,
+    "path_free_release_gate_contract": "PASS",
+    "release_gate_threshold": 0.0,
+    "release_gate_seeds": [704, 1704, 2704],
+    "release_gate_model_hashes_recorded": 3
   },
-  "included_data_scope": "aggregate-only frozen outputs, a path-free training contract and empty input headers",
+  "included_data_scope": "aggregate-only frozen outputs, path-free V32 training and V31 release-gate contracts, and empty input headers",
   "known_dependency_boundary": "Full recomputation requires lawful local access to provider-controlled candidate, prediction, reference and participant-comparator inputs; these inputs are intentionally absent.",
   "commit_or_push_performed": true
 }
