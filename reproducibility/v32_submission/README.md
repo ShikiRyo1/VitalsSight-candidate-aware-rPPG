@@ -1,17 +1,25 @@
 # VitalsSight V32 submission reproducibility package
 
-This directory contains the smallest public analysis package needed to recompute the V32 internal aggregate tables and candidate-oracle diagnostic from authorized prediction ledgers, and to reproduce or independently audit the frozen EMPD aggregate contrasts when the data provider's reference files are available locally.
+This directory contains the public scientific code and data contracts needed to fit, freeze and run the V32 source-preserving candidate path on authorized candidate ledgers, recompute the internal aggregate tables and candidate-oracle diagnostic, and reproduce or independently audit the frozen EMPD aggregate contrasts when the data provider's reference files are available locally.
 
-The four analysis programs in `scripts/` are byte-identical copies of the frozen manuscript-workspace programs. No training, inference, threshold search, or scientific logic was rewritten for this package.
+The scientific programs in `scripts/` are byte-identical copies of the frozen manuscript-workspace programs. No fitting, inference, threshold search or analysis logic was rewritten for this package.
 
 ## What is included
 
 - `scripts/analyze_v32_candidate_oracle_regret.py`: development-only candidate-pool/oracle diagnostic. Reference HR is used retrospectively and never enters inference.
+- `scripts/screen_v31_tree_rankers.py`: participant-disjoint candidate-ranker screening with explicit forbidden-feature checks.
+- `scripts/run_v31_matched_stacking_baselines.py`: matched ridge and ExtraTrees direct-combination controls using the five deep-route prediction stack.
+- `scripts/run_v31_nested_candidate_vs_stacking.py`: nested participant-disjoint source-preserving selector and matched comparator evaluation.
+- `scripts/run_v32_causal_candidate_path.py`: nested V32 candidate-emission fitting, transition-penalty selection and causal source-preserving path inference.
+- `scripts/freeze_v32_causal_candidate_path.py`: fit and serialize the development-selected V32 path without accessing external outcomes.
+- `scripts/run_v32_frozen_candidate_path_inference.py`: run the frozen candidate path on an outcome-free candidate pool with relation-parity and forbidden-field checks.
+- `scripts/v32_candidate_relations.py`: prediction-only relation-feature construction used by frozen inference.
 - `scripts/build_v32_internal_core_evidence.py`: participant-equal internal endpoints, participant bootstrap intervals, paired effects, Table 2 source data, and Figure 2 exports.
 - `scripts/evaluate_v32_empd_posthoc_fixed_replay.py`: fixed-model EMPD replay evaluation from an outcome-free frozen prediction ledger plus authorized reference and comparator files.
 - `scripts/audit_v32_empd_posthoc_fixed_replay.py`: independent EMPD endpoint and paired-inference audit using independent random seeds.
 - `frozen_aggregates/`: exact aggregate-only outputs used to check the manuscript numbers and claim boundaries.
 - `schemas/`: header-only input templates. They contain no observations, subject identifiers, reference values, or provider labels.
+- `contracts/v32_internal_training_contract.json`: path-free machine-readable denominator, split, seed, selector, transition and claim-boundary contract.
 - `expected_headline_metrics.json`: machine-readable expected point estimates and inferential roles.
 - `SHA256SUMS.txt`: hashes for every packaged file except the checksum file itself.
 
@@ -32,7 +40,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-The internal table/figure builder additionally requires a working matplotlib raster/vector backend. No GPU is used by any script in this package.
+The aggregate builders require no GPU. Candidate fitting can run on CPU; runtime depends on the authorized ledger size. The frozen inference scripts do not require provider outcomes.
 
 ## Package verification
 
@@ -46,6 +54,23 @@ python -c "import pathlib, py_compile; [py_compile.compile(str(p), doraise=True)
 `verify_package.py` checks all packaged hashes and the central manuscript values to a tolerance of `1e-12`.
 
 ## Internal V32 analyses
+
+### 0. Comparator and candidate-path fitting contract
+
+`contracts/v32_internal_training_contract.json` fixes the participant folds, seeds, model settings, transition grid and feature guards used for the reported internal path. The methods do not receive identical representations: the source-preserving selectors operate on the full 8,096-candidate ledger, ridge and ExtraTrees operate on a 53-field stack derived from five deep-route predictions for the same windows, and TS-CAN is a single-route control. The matched stackers are therefore direct-combination controls; the primary mechanism contrast is V32 versus the earlier source-preserving selector.
+
+The executable sequence on authorized internal ledgers is:
+
+```powershell
+python scripts\screen_v31_tree_rankers.py --help
+python scripts\run_v31_matched_stacking_baselines.py --help
+python scripts\run_v31_nested_candidate_vs_stacking.py --help
+python scripts\run_v32_causal_candidate_path.py --help
+python scripts\freeze_v32_causal_candidate_path.py --help
+python scripts\run_v32_frozen_candidate_path_inference.py --help
+```
+
+Each program requires explicit input and output paths and refuses label-derived inference fields. Dataset records and provider-controlled ledgers are deliberately not included in this repository.
 
 ### 1. Candidate-pool and oracle diagnostic
 
@@ -119,4 +144,3 @@ The release/review score is not a calibrated safety probability. Proposed releas
 ## Reproducibility boundary
 
 The public artifacts allow number-level verification and provide exact analysis code and input contracts. They do not make provider-controlled participant records public. Full outcome-level recomputation requires lawful access to the original datasets and locally retained frozen ledgers whose hashes are recorded in the aggregate summaries.
-

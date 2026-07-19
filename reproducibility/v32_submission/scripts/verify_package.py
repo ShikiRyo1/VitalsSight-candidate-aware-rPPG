@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import py_compile
 from pathlib import Path
 
 
@@ -50,6 +51,34 @@ def verify_hashes() -> int:
         require(sha256(path) == expected.upper(), f"hash mismatch: {relative}")
         checked += 1
     return checked
+
+
+def verify_python_sources() -> int:
+    scripts = sorted((ROOT / "scripts").glob("*.py"))
+    require(scripts, "no Python scripts were packaged")
+    for script in scripts:
+        py_compile.compile(str(script), doraise=True)
+    return len(scripts)
+
+
+def verify_contract() -> list[str]:
+    contract = json.loads(
+        (ROOT / "contracts/v32_internal_training_contract.json").read_text(encoding="utf-8")
+    )
+    require(contract["denominator"] == {
+        "participants": 42,
+        "windows": 439,
+        "candidates": 8096,
+        "candidates_per_window_min": 17,
+        "candidates_per_window_max": 19,
+    }, "V32 denominator contract")
+    require(contract["splitting"]["outer_participant_folds"] == 3, "outer folds")
+    require(contract["splitting"]["inner_participant_folds"] == 3, "inner folds")
+    require(contract["splitting"]["model_seeds"] == [704, 1704, 2704], "model seeds")
+    require(contract["inference_guards"]["reference_hr_never_enters_candidate_scoring"] is True, "reference guard")
+    require(contract["inference_guards"]["label_derived_features_forbidden"] is True, "label guard")
+    require(contract["inference_guards"]["external_outcomes_accessed"] is False, "external-outcome guard")
+    return ["denominator and participant-split contract", "inference feature and outcome guards"]
 
 
 def verify_metrics() -> list[str]:
@@ -119,6 +148,8 @@ def main() -> int:
     result = {
         "status": "PASS",
         "files_hashed": verify_hashes(),
+        "python_sources_compiled": verify_python_sources(),
+        "contract_checks": verify_contract(),
         "metric_checks": verify_metrics(),
         "tolerance": TOLERANCE,
     }

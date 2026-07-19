@@ -2,26 +2,17 @@
   "status": "PASS",
   "scope": "reproducibility/v32_submission",
   "copied_script_integrity": [
-    {
-      "script": "analyze_v32_candidate_oracle_regret.py",
-      "sha256": "189B2086D6C2AA256E9B708E7B8170D09F2827AA3FE1AB4C5547BE2CD8E13B16",
-      "byte_identical_to_frozen_source": true
-    },
-    {
-      "script": "build_v32_internal_core_evidence.py",
-      "sha256": "6A599B65C9CC453388BE76ACAD18A4574D6C3E36B9EA3A17D99B2A75D6011933",
-      "byte_identical_to_frozen_source": true
-    },
-    {
-      "script": "evaluate_v32_empd_posthoc_fixed_replay.py",
-      "sha256": "EB8EF07BFD1F05DB94AC32FC67B22A41F5790D61B526DD963D4CD0D42E9587F2",
-      "byte_identical_to_frozen_source": true
-    },
-    {
-      "script": "audit_v32_empd_posthoc_fixed_replay.py",
-      "sha256": "56F7E5B1DDB0C56A905241ADF3B50D40899C3BFD5970CBC64724E6353990E8BF",
-      "byte_identical_to_frozen_source": true
-    }
+    {"script": "analyze_v32_candidate_oracle_regret.py", "sha256": "189B2086D6C2AA256E9B708E7B8170D09F2827AA3FE1AB4C5547BE2CD8E13B16", "byte_identical_to_frozen_source": true},
+    {"script": "build_v32_internal_core_evidence.py", "sha256": "6A599B65C9CC453388BE76ACAD18A4574D6C3E36B9EA3A17D99B2A75D6011933", "byte_identical_to_frozen_source": true},
+    {"script": "evaluate_v32_empd_posthoc_fixed_replay.py", "sha256": "EB8EF07BFD1F05DB94AC32FC67B22A41F5790D61B526DD963D4CD0D42E9587F2", "byte_identical_to_frozen_source": true},
+    {"script": "audit_v32_empd_posthoc_fixed_replay.py", "sha256": "56F7E5B1DDB0C56A905241ADF3B50D40899C3BFD5970CBC64724E6353990E8BF", "byte_identical_to_frozen_source": true},
+    {"script": "screen_v31_tree_rankers.py", "sha256": "7B5F2AA5CC4C36C74DC674A33A563BDF9ABDBF6695C09497FEFC72B0A9CEDD00", "byte_identical_to_frozen_source": true},
+    {"script": "run_v31_matched_stacking_baselines.py", "sha256": "09DB65B7089E128C86C82C3FCA028F58ED80C2EBEFACD0F99524281CF4A47A37", "byte_identical_to_frozen_source": true},
+    {"script": "run_v31_nested_candidate_vs_stacking.py", "sha256": "9FD260365F462D786BE407DB9068F02E89B84009633B205AB0B884D89D3F2EA5", "byte_identical_to_frozen_source": true},
+    {"script": "run_v32_causal_candidate_path.py", "sha256": "D14DC5056F8391262F38C3A5DB78FD61FC7F77A88AD0AA7115A699DADFD67247", "byte_identical_to_frozen_source": true},
+    {"script": "freeze_v32_causal_candidate_path.py", "sha256": "3F2C2E60912B41936A2B21DEF8B094C5BA2FC1FF00FB3A1BCC521303F715BBCC", "byte_identical_to_frozen_source": true},
+    {"script": "run_v32_frozen_candidate_path_inference.py", "sha256": "C394658BD9AA2651BFEE7B98878A917C9F1B7488C3EF32213BE6A1C0BAACDBDC", "byte_identical_to_frozen_source": true},
+    {"script": "v32_candidate_relations.py", "sha256": "82D444C4B21C365902DA971DC0CB09656ADB5B772A58621B69F479E0CF00D651", "byte_identical_to_frozen_source": true}
   ],
   "scans": {
     "private_absolute_path_literals": 0,
@@ -32,11 +23,17 @@
     "header_only_schema_templates_with_participant_fields": 1
   },
   "python_validation": {
-    "py_compile_files": 5,
+    "py_compile_files": 12,
     "py_compile_status": "PASS",
-    "all_four_copied_script_help_entrypoints": "PASS"
+    "cli_help_entrypoints_tested": 10,
+    "cli_help_status": "PASS"
   },
-  "included_data_scope": "aggregate-only frozen outputs plus empty input headers",
-  "known_dependency_boundary": "Full EMPD recomputation requires lawful local access to provider-controlled prediction, reference and participant-comparator inputs; these inputs are intentionally absent.",
-  "commit_or_push_performed": false
+  "contract_validation": {
+    "denominator_and_participant_split": "PASS",
+    "reference_and_label_feature_guards": "PASS",
+    "external_outcomes_accessed": false
+  },
+  "included_data_scope": "aggregate-only frozen outputs, a path-free training contract and empty input headers",
+  "known_dependency_boundary": "Full recomputation requires lawful local access to provider-controlled candidate, prediction, reference and participant-comparator inputs; these inputs are intentionally absent.",
+  "commit_or_push_performed": true
 }

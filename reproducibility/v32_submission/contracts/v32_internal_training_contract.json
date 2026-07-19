@@ -1,0 +1,43 @@
+{
+  "task": "V32_CAUSAL_SOURCE_PRESERVING_CANDIDATE_PATH",
+  "scientific_role": "development_only_nested_participant_disjoint",
+  "denominator": {
+    "participants": 42,
+    "windows": 439,
+    "candidates": 8096,
+    "candidates_per_window_min": 17,
+    "candidates_per_window_max": 19
+  },
+  "splitting": {
+    "outer_participant_folds": 3,
+    "inner_participant_folds": 3,
+    "outer_split_seed": 310718,
+    "inner_split_seed": 610718,
+    "model_seeds": [704, 1704, 2704]
+  },
+  "selector": {
+    "n_estimators": 160,
+    "min_samples_leaf": 7,
+    "max_features": 0.75,
+    "intrinsic_relation_blend": 0.5,
+    "unsafe5_penalty": 5.0
+  },
+  "causal_path": {
+    "transition_lambda_grid": [0.0, 0.025, 0.05, 0.1, 0.2, 0.4],
+    "selected_by_outer_fold": [0.4, 0.2, 0.2],
+    "frozen_transition_lambda_candidate": 0.2,
+    "max_transition_bpm": 40.0
+  },
+  "inference_guards": {
+    "reference_hr_never_enters_candidate_scoring": true,
+    "label_derived_features_forbidden": true,
+    "external_outcomes_accessed": false,
+    "output_is_an_observed_source_identified_candidate": true
+  },
+  "statistics": {
+    "participant_bootstrap_draws": 10000,
+    "paired_sign_flip_draws": 10000,
+    "paired_sign_flip_plus_one_correction": true
+  },
+  "claim_boundary": "Development evidence selects and freezes the V32 candidate-path architecture; it does not establish untouched transportability, calibrated safety, clinical utility or autonomous release."
+}
