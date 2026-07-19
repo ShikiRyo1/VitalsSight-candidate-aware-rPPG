@@ -1,0 +1,4 @@
+method_b,n_participants,mean_delta_primary_minus_comparator_bpm,independent_ci95_low,independent_ci95_high,independent_sign_flip_p_plus_one
+VitalsSight_frozen_candidate_aware,83,-0.26436712760131426,-0.5319434699023364,-0.041414236491420196,0.03132484337578312
+matched_extra_trees_stacker_frozen,83,-0.39188832790283357,-0.7483016968403818,-0.07633364153869848,0.023669881650591747
+single_route_TSCAN_frozen,83,-1.7614492059145677,-2.7017680095381524,-0.9805921127692596,4.9999750001249995e-06

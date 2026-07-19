@@ -1,0 +1,28 @@
+{
+  "task": "V32_FROZEN_CAUSAL_CANDIDATE_PATH_EXTERNAL_INFERENCE",
+  "generated_at_utc": "2026-07-19T11:52:08.394625+00:00",
+  "status": "PREDICTIONS_FROZEN_WITHOUT_EXTERNAL_OUTCOMES",
+  "external_outcomes_accessed": false,
+  "participants": 83,
+  "windows": 2120,
+  "candidates": 38892,
+  "candidate_pool_sha256": "D75E9C324E03845087050CED09E72DBF9A46394D175A9F17E4B6854FE4D579AF",
+  "freeze_contract_sha256": "63D5D8DD2C0C5450F7EB9267DF80DF4D80366F56A3364E90D5D9B1E7E18350DE",
+  "relation_parity_summary_sha256": "831C84F0EDA8D5EEBE00320CF4A0CC2902558F322367C09F908AA1A11D864DC2",
+  "candidate_pool_audit_sha256": "81B7049A26B70DC9F9BB95D790A53B6F82715B88C5E1A5140B401F6E3313A4D0",
+  "relation_module_sha256": "82D444C4B21C365902DA971DC0CB09656ADB5B772A58621B69F479E0CF00D651",
+  "frozen_transition_lambda": 0.2,
+  "selected_source_counts": {
+    "RhythmFormer": 1148,
+    "TSCAN": 364,
+    "DeepPhys": 313,
+    "EfficientPhys": 235,
+    "tk04": 18,
+    "PhysFormer": 17,
+    "tk06": 15,
+    "tk05": 8,
+    "tk00": 1,
+    "tk01": 1
+  },
+  "claim_boundary": "No performance metric can be computed until the separately sealed external reference is opened once."
+}

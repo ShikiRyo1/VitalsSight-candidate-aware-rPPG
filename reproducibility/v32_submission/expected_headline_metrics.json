@@ -1,0 +1,45 @@
+{
+  "internal_primary": {
+    "participants": 42,
+    "windows": 439,
+    "method": "VitalsSight_v32_causal_candidate_path",
+    "participant_equal_mae_bpm": 1.8354543521954239,
+    "participant_equal_rmse_bpm": 3.627537456639812,
+    "within5": 0.8681508967223254,
+    "within10": 0.9634817563388993,
+    "unsafe_gt10": 0.036518243661100805
+  },
+  "internal_primary_contrast": {
+    "comparator": "VitalsSight_candidate_aware",
+    "mean_delta_bpm": -0.8533296130952379,
+    "ci95_low": -1.7202972808441555,
+    "ci95_high": -0.248826856737013,
+    "paired_sign_flip_p_plus_one": 0.0029997000299970002,
+    "role": "primary repaired-selector contrast"
+  },
+  "external_primary_v31": {
+    "participants": 83,
+    "windows": 2120,
+    "participant_equal_mae_bpm": 4.2166107612267245,
+    "tscan_delta_bpm": -1.4970820783132535,
+    "tscan_holm_p": 0.00007999920000799993,
+    "extra_trees_delta_bpm": -0.1275212003015192,
+    "extra_trees_holm_p": 0.35422645773542266,
+    "role": "prospectively frozen external primary test"
+  },
+  "external_posthoc_v32": {
+    "participants": 83,
+    "windows": 2120,
+    "participant_equal_mae_bpm": 3.952243633625411,
+    "participant_equal_rmse_bpm": 6.313067281850622,
+    "within10": 0.9520993063161739,
+    "unsafe_gt10": 0.04790069368382621,
+    "role": "exploratory fixed-model consistency replay only"
+  },
+  "claim_boundaries": [
+    "Oracle metrics are development-only and non-deployable.",
+    "The V32 EMPD replay is post hoc and cannot replace the V31 untouched external test.",
+    "The release score is not a calibrated safety probability.",
+    "No autonomous clinical release or clinical-utility claim is established."
+  ]
+}

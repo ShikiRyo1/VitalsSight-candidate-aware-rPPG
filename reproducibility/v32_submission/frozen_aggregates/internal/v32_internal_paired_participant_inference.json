@@ -1,0 +1,102 @@
+[
+  {
+    "method_a": "VitalsSight_v32_causal_candidate_path",
+    "method_b": "VitalsSight_v32_independent_emission",
+    "n_subjects": 42,
+    "mean_delta_a_minus_b_bpm": -0.4800315012368584,
+    "ci95_low": -1.0685553518282314,
+    "ci95_high": -0.0023779931006495543,
+    "paired_sign_flip_p_plus_one": 0.0993900609939006,
+    "a_lower_mae_supported": true
+  },
+  {
+    "method_a": "VitalsSight_v32_causal_candidate_path",
+    "method_b": "VitalsSight_candidate_aware",
+    "n_subjects": 42,
+    "mean_delta_a_minus_b_bpm": -0.8533296130952379,
+    "ci95_low": -1.7202972808441555,
+    "ci95_high": -0.248826856737013,
+    "paired_sign_flip_p_plus_one": 0.0029997000299970002,
+    "a_lower_mae_supported": true
+  },
+  {
+    "method_a": "VitalsSight_v32_causal_candidate_path",
+    "method_b": "matched_extra_trees_stacker",
+    "n_subjects": 42,
+    "mean_delta_a_minus_b_bpm": -2.3271695152042264,
+    "ci95_low": -3.636698275073063,
+    "ci95_high": -1.2238783923331968,
+    "paired_sign_flip_p_plus_one": 9.999000099990002e-05,
+    "a_lower_mae_supported": true
+  },
+  {
+    "method_a": "VitalsSight_v32_causal_candidate_path",
+    "method_b": "matched_ridge_stacker",
+    "n_subjects": 42,
+    "mean_delta_a_minus_b_bpm": -4.811365380528018,
+    "ci95_low": -5.924036541469717,
+    "ci95_high": -3.8258120655778245,
+    "paired_sign_flip_p_plus_one": 9.999000099990002e-05,
+    "a_lower_mae_supported": true
+  },
+  {
+    "method_a": "VitalsSight_v32_causal_candidate_path",
+    "method_b": "deep_candidate_median",
+    "n_subjects": 42,
+    "mean_delta_a_minus_b_bpm": -3.9083637716450217,
+    "ci95_low": -6.372838215541897,
+    "ci95_high": -1.8414847917149817,
+    "paired_sign_flip_p_plus_one": 0.00039996000399960006,
+    "a_lower_mae_supported": true
+  },
+  {
+    "method_a": "VitalsSight_v32_causal_candidate_path",
+    "method_b": "DeepPhys",
+    "n_subjects": 42,
+    "mean_delta_a_minus_b_bpm": -4.820534747990106,
+    "ci95_low": -7.409592174938156,
+    "ci95_high": -2.550393523886829,
+    "paired_sign_flip_p_plus_one": 9.999000099990002e-05,
+    "a_lower_mae_supported": true
+  },
+  {
+    "method_a": "VitalsSight_v32_causal_candidate_path",
+    "method_b": "EfficientPhys",
+    "n_subjects": 42,
+    "mean_delta_a_minus_b_bpm": -10.520380382266543,
+    "ci95_low": -14.22338127367424,
+    "ci95_high": -7.124131390837587,
+    "paired_sign_flip_p_plus_one": 9.999000099990002e-05,
+    "a_lower_mae_supported": true
+  },
+  {
+    "method_a": "VitalsSight_v32_causal_candidate_path",
+    "method_b": "TSCAN",
+    "n_subjects": 42,
+    "mean_delta_a_minus_b_bpm": -4.261991728509586,
+    "ci95_low": -6.617047991071429,
+    "ci95_high": -2.2552560441790352,
+    "paired_sign_flip_p_plus_one": 9.999000099990002e-05,
+    "a_lower_mae_supported": true
+  },
+  {
+    "method_a": "VitalsSight_v32_causal_candidate_path",
+    "method_b": "PhysFormer",
+    "n_subjects": 42,
+    "mean_delta_a_minus_b_bpm": -15.344200535327767,
+    "ci95_low": -18.722576832579623,
+    "ci95_high": -12.148322903380103,
+    "paired_sign_flip_p_plus_one": 9.999000099990002e-05,
+    "a_lower_mae_supported": true
+  },
+  {
+    "method_a": "VitalsSight_v32_causal_candidate_path",
+    "method_b": "RhythmFormer",
+    "n_subjects": 42,
+    "mean_delta_a_minus_b_bpm": -4.685084260977119,
+    "ci95_low": -7.8035267373995065,
+    "ci95_high": -1.971531723484848,
+    "paired_sign_flip_p_plus_one": 0.00029997000299970003,
+    "a_lower_mae_supported": true
+  }
+]

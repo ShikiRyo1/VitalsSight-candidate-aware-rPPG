@@ -1,0 +1,7 @@
+threshold_bpm,failure_class,n_windows,fraction
+5,selector_success,354,0.806378132118451
+5,selector_error_reducible,85,0.19362186788154898
+5,candidate_pool_failure,0,0.0
+10,selector_success,407,0.9271070615034168
+10,selector_error_reducible,32,0.07289293849658314
+10,candidate_pool_failure,0,0.0

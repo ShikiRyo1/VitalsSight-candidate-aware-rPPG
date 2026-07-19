@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "one_selector_prediction_per_window": true,
+  "all_selector_windows_have_candidates": true,
+  "all_selected_ids_exist_in_pool": true,
+  "selector_regret_nonnegative": true,
+  "seed_score_count_per_candidate": 3,
+  "reference_hr_used_only_for_retrospective_diagnostic": true
+}

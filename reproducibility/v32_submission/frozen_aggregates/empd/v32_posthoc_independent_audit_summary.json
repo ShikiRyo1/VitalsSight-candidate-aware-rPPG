@@ -1,0 +1,51 @@
+{
+  "task_id": "V32_EMPD_POSTHOC_FIXED_REPLAY_INDEPENDENT_AUDIT",
+  "status": "PASS",
+  "scientific_role_preserved": "exploratory_external_replay_only",
+  "prediction_sha256": "52C2B225B7540105C064F5BBE4D03CC3D484B13E9125E4B3FB44CF741394DAC8",
+  "reference_sha256": "34033410009603A5651B8C2D8A82381D598FF2AF3EBCE1B92B27C94941EA79FD",
+  "reported_summary_sha256": "9DAFCCF7D4CAFC906A6C003FB36EC110A41487CC1D4FE5C2362B8D32C3916282",
+  "recomputed_metrics": {
+    "participants": 83,
+    "windows": 2120,
+    "participant_equal_mae_bpm": 3.952243633625411,
+    "participant_equal_rmse_bpm": 6.313067281850622,
+    "participant_equal_within5": 0.5786966046002189,
+    "participant_equal_within10": 0.9520993063161739,
+    "participant_equal_unsafe_gt10": 0.04790069368382621
+  },
+  "independent_contrasts": [
+    {
+      "method_b": "VitalsSight_frozen_candidate_aware",
+      "n_participants": 83,
+      "mean_delta_primary_minus_comparator_bpm": -0.26436712760131426,
+      "independent_ci95_low": -0.5319434699023364,
+      "independent_ci95_high": -0.041414236491420196,
+      "independent_sign_flip_p_plus_one": 0.03132484337578312
+    },
+    {
+      "method_b": "matched_extra_trees_stacker_frozen",
+      "n_participants": 83,
+      "mean_delta_primary_minus_comparator_bpm": -0.39188832790283357,
+      "independent_ci95_low": -0.7483016968403818,
+      "independent_ci95_high": -0.07633364153869848,
+      "independent_sign_flip_p_plus_one": 0.023669881650591747
+    },
+    {
+      "method_b": "single_route_TSCAN_frozen",
+      "n_participants": 83,
+      "mean_delta_primary_minus_comparator_bpm": -1.7614492059145677,
+      "independent_ci95_low": -2.7017680095381524,
+      "independent_ci95_high": -0.9805921127692596,
+      "independent_sign_flip_p_plus_one": 4.9999750001249995e-06
+    }
+  ],
+  "checks": [
+    "2120 one-to-one prediction/reference identities",
+    "83 participant-equal endpoint recomputation",
+    "reported point estimates reproduced to 1e-12",
+    "independent bootstrap intervals remain below zero",
+    "independent sign-flip p-values remain below 0.05",
+    "post hoc exploratory claim boundary remains explicit"
+  ]
+}

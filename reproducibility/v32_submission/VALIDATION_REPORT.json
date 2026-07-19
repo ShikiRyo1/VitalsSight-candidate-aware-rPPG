@@ -1,0 +1,42 @@
+{
+  "status": "PASS",
+  "scope": "reproducibility/v32_submission",
+  "copied_script_integrity": [
+    {
+      "script": "analyze_v32_candidate_oracle_regret.py",
+      "sha256": "189B2086D6C2AA256E9B708E7B8170D09F2827AA3FE1AB4C5547BE2CD8E13B16",
+      "byte_identical_to_frozen_source": true
+    },
+    {
+      "script": "build_v32_internal_core_evidence.py",
+      "sha256": "6A599B65C9CC453388BE76ACAD18A4574D6C3E36B9EA3A17D99B2A75D6011933",
+      "byte_identical_to_frozen_source": true
+    },
+    {
+      "script": "evaluate_v32_empd_posthoc_fixed_replay.py",
+      "sha256": "EB8EF07BFD1F05DB94AC32FC67B22A41F5790D61B526DD963D4CD0D42E9587F2",
+      "byte_identical_to_frozen_source": true
+    },
+    {
+      "script": "audit_v32_empd_posthoc_fixed_replay.py",
+      "sha256": "56F7E5B1DDB0C56A905241ADF3B50D40899C3BFD5970CBC64724E6353990E8BF",
+      "byte_identical_to_frozen_source": true
+    }
+  ],
+  "scans": {
+    "private_absolute_path_literals": 0,
+    "credential_or_remote_host_indicators": 0,
+    "raw_media_or_model_files": 0,
+    "window_level_empd_reference_files": 0,
+    "participant_level_empd_data_files": 0,
+    "header_only_schema_templates_with_participant_fields": 1
+  },
+  "python_validation": {
+    "py_compile_files": 5,
+    "py_compile_status": "PASS",
+    "all_four_copied_script_help_entrypoints": "PASS"
+  },
+  "included_data_scope": "aggregate-only frozen outputs plus empty input headers",
+  "known_dependency_boundary": "Full EMPD recomputation requires lawful local access to provider-controlled prediction, reference and participant-comparator inputs; these inputs are intentionally absent.",
+  "commit_or_push_performed": false
+}

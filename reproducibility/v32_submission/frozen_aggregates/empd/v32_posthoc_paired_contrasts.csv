@@ -1,0 +1,4 @@
+method_a,method_b,n_participants,mean_delta_primary_minus_comparator_bpm,ci95_low,ci95_high,paired_sign_flip_p_plus_one,bootstrap_draws,sign_flip_draws,p_holm_three_posthoc_contrasts
+VitalsSight_v32_causal_candidate_path,VitalsSight_frozen_candidate_aware,83,-0.26436712760131426,-0.5325306909456006,-0.04255480729737128,0.03023969760302397,10000,100000,0.04653953460465395
+VitalsSight_v32_causal_candidate_path,matched_extra_trees_stacker_frozen,83,-0.39188832790283357,-0.7467122495786993,-0.07873364912174445,0.023269767302326976,10000,100000,0.04653953460465395
+VitalsSight_v32_causal_candidate_path,single_route_TSCAN_frozen,83,-1.7614492059145677,-2.7430888326031395,-0.9777626129518074,9.99990000099999e-06,10000,100000,2.999970000299997e-05
