@@ -62,4 +62,4 @@ echo "Preparing the pinned face-landmark runtime asset..."
 
 echo "Starting VitalsSight on this Mac..."
 echo "The browser will open automatically. Keep this Terminal window open while using VitalsSight."
-exec "$VENV_DIR/bin/python" scripts/run_vitalssight_local.py
+exec "$VENV_DIR/bin/python" scripts/run_vitalssight_local.py "$@"
