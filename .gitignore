@@ -21,11 +21,13 @@ artifacts_*.log
 !.streamlit/secrets.toml.example
 .streamlit/secrets.toml
 
-# Raw datasets, participant media and large arrays
-data/
-dataset/
-datasets/
-raw_data/
+# Raw datasets, participant media and large arrays.
+# Anchor dataset folders at the repository root so reusable code such as
+# src/data remains visible to clean clones and CI runners.
+/data/
+/dataset/
+/datasets/
+/raw_data/
 *.zip
 *.tar
 *.tar.gz
@@ -43,14 +45,14 @@ raw_data/
 *.npz
 
 # Models, third-party source and generated experiment state
-models/
-checkpoints/
-third_party/
-experiments/
-output/
-runtime/
-logs/
-tmp/
+/models/
+/checkpoints/
+/third_party/
+/experiments/
+/output/
+/runtime/
+/logs/
+/tmp/
 
 # Documents and editor noise
 *.docx
