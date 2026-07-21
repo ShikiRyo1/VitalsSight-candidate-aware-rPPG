@@ -1,0 +1,50 @@
+name: macos-product-smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "RUN_VITALSSIGHT_MAC.command"
+      - "requirements-core.txt"
+      - "app/**"
+      - "src/**"
+      - "scripts/run_vitalssight_local.py"
+      - "scripts/setup_runtime_assets.py"
+      - ".github/workflows/macos-smoke.yml"
+  pull_request:
+    paths:
+      - "RUN_VITALSSIGHT_MAC.command"
+      - "requirements-core.txt"
+      - "app/**"
+      - "src/**"
+      - "scripts/run_vitalssight_local.py"
+      - "scripts/setup_runtime_assets.py"
+      - ".github/workflows/macos-smoke.yml"
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install runtime and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-core.txt -r requirements-dev.txt
+      - name: Validate macOS launcher syntax and mode
+        run: |
+          bash -n RUN_VITALSSIGHT_MAC.command
+          test -x RUN_VITALSSIGHT_MAC.command
+      - name: Prepare pinned runtime asset
+        run: python scripts/setup_runtime_assets.py
+      - name: Run macOS UI and API smoke test
+        run: python scripts/run_vitalssight_local.py --smoke-test --no-browser --startup-timeout 180
+      - name: Run public contract tests
+        run: python -m pytest -q

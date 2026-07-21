@@ -2,7 +2,32 @@
 
 Research code for candidate-aware, camera-based heart-rate estimation with an explicit release/review output contract.
 
-VitalsSight preserves multiple heart-rate hypotheses from classical, regional and learned routes, compares candidate-level and cross-candidate evidence, and returns either an estimate with an evidence packet or a review state. The repository accompanies the manuscript *VitalsSight selects competing heart rate candidates and documents failure modes*.
+**[Project website](https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/)** | **[Reproducibility package](reproducibility/v32_submission/)** | **[macOS quick start](docs/MACOS_QUICK_START.md)** | **[Data boundary](docs/DATA.md)**
+
+VitalsSight preserves multiple heart-rate hypotheses from classical, regional and learned routes, compares candidate-level and cross-candidate evidence, and returns either an estimate with an evidence packet or a review state. The repository accompanies the manuscript *VitalsSight preserves competing remote heart-rate hypotheses for evidence-linked review*.
+
+## Quick start
+
+### Windows
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements-core.txt
+python scripts/setup_runtime_assets.py
+python scripts/run_vitalssight_local.py
+```
+
+### macOS
+
+Install Python 3.10-3.12, download and extract the complete repository, then double-click:
+
+```text
+RUN_VITALSSIGHT_MAC.command
+```
+
+The launcher creates an isolated environment, installs the declared dependencies, verifies the pinned runtime asset and opens the local browser interface. See [the macOS instructions](docs/MACOS_QUICK_START.md) for Gatekeeper-safe opening and log locations.
 
 ## Scope
 

@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="VitalsSight preserves competing remote heart-rate hypotheses and reports a selected value separately from an evidence-linked release or review proposal.">
+  <meta name="theme-color" content="#f5f8fa">
+  <link rel="canonical" href="https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/">
+  <meta property="og:title" content="VitalsSight | Candidate-aware remote heart-rate inference">
+  <meta property="og:description" content="Source-preserving candidate selection with an explicit evidence-linked output contract.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/">
+  <meta property="og:image" content="https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/assets/project-page/method-overview.png">
+  <title>VitalsSight | Candidate-aware remote heart-rate inference</title>
+  <link rel="stylesheet" href="assets/project-page/site.css">
+  <script defer src="assets/project-page/site.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  <header class="site-header">
+    <nav class="nav-shell" aria-label="Primary navigation">
+      <a class="brand" href="#top" aria-label="VitalsSight home">
+        <span class="brand-mark" aria-hidden="true">VS</span>
+        <span>VitalsSight</span>
+      </a>
+      <button class="menu-button" type="button" aria-expanded="false" aria-controls="site-menu">
+        <span class="menu-icon" aria-hidden="true"></span>
+        <span class="sr-only">Open navigation</span>
+      </button>
+      <div class="nav-links" id="site-menu">
+        <a href="#abstract">Abstract</a>
+        <a href="#method">Method</a>
+        <a href="#evidence">Evidence</a>
+        <a href="#software">Software</a>
+        <a href="#availability">Availability</a>
+        <a class="nav-code" href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG">GitHub</a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <div class="hero-image" role="img" aria-label="VitalsSight source-preserving candidate-path mechanism"></div>
+      <div class="hero-scrim" aria-hidden="true"></div>
+      <div class="hero-content">
+        <p class="eyebrow">Camera-based physiological measurement research</p>
+        <h1 id="hero-title">VitalsSight</h1>
+        <p class="hero-kicker">Candidate-aware remote heart-rate inference with an evidence-linked review contract</p>
+        <p class="hero-summary">Multiple plausible heart-rate hypotheses remain visible until selection. The selected value, competing evidence and proposed release or review state are returned as separate, traceable fields.</p>
+        <div class="hero-actions" aria-label="Project resources">
+          <a class="button primary" href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG">View code</a>
+          <a class="button secondary" href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/tree/main/reproducibility">Reproducibility package</a>
+          <a class="button text-button" href="#abstract">Read the study summary</a>
+        </div>
+        <p class="status-line"><span class="status-dot" aria-hidden="true"></span> Manuscript in preparation. Research use only.</p>
+      </div>
+    </section>
+
+    <section class="summary-band" aria-label="Study at a glance">
+      <div class="content-shell metric-grid">
+        <div class="metric">
+          <strong>42</strong>
+          <span>development participants</span>
+        </div>
+        <div class="metric">
+          <strong>1.835 BPM</strong>
+          <span>participant-equal development MAE</span>
+        </div>
+        <div class="metric">
+          <strong>83</strong>
+          <span>untouched external participants</span>
+        </div>
+        <div class="metric">
+          <strong>4.217 BPM</strong>
+          <span>frozen external selector MAE</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="abstract" aria-labelledby="abstract-title">
+      <div class="content-shell narrow-copy">
+        <p class="section-label">Study overview</p>
+        <h2 id="abstract-title">Why preserve competing hypotheses?</h2>
+        <p class="lead">Remote photoplethysmography pipelines commonly collapse a video window into one heart rate even when several hypotheses remain plausible. This makes it difficult to distinguish candidate absence from an arbitration error or an unresolved source conflict.</p>
+        <p>VitalsSight preserves source identity, ranks observed hypotheses using prediction-time evidence and reports the selected value separately from a proposed release or review state. In participant-disjoint development, the joint candidate path achieved a participant-equal mean absolute error of 1.835 beats per minute in 42 participants. A frozen base selector was then evaluated once in 83 untouched participants and 2,120 windows, achieving 4.217 beats per minute. It outperformed single-route TS-CAN but did not differ from matched ExtraTrees. The separately frozen release gate transported poorly, identifying cross-domain score shift rather than loss of selector output.</p>
+        <aside class="boundary-note" aria-label="Claim boundary">
+          <strong>Claim boundary</strong>
+          <p>The work supports traceable candidate-preserving inference. It does not establish calibrated clinical safety, autonomous release, real-time clinical utility or medical-device performance.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section method-section" id="method" aria-labelledby="method-title">
+      <div class="content-shell">
+        <div class="section-heading">
+          <div>
+            <p class="section-label">Method</p>
+            <h2 id="method-title">One inference object, four explicit outputs</h2>
+          </div>
+          <p>Video evidence forms a variable-size constellation. A causal path selects an observed candidate; the selected heart rate, evidence packet, research score and proposed state remain separate.</p>
+        </div>
+        <figure class="wide-figure">
+          <a href="assets/project-page/method-overview.png" aria-label="Open the full-resolution method figure">
+            <img src="assets/project-page/method-overview.png" alt="Diagram of VitalsSight candidate construction, joint candidate-path selection and evidence-linked release or review output" width="1884" height="1336" loading="lazy">
+          </a>
+          <figcaption>Source-preserving joint selection with evidence-linked output. Reference heart rate and candidate error are confined to training or retrospective evaluation.</figcaption>
+        </figure>
+
+        <div class="mechanism-grid" aria-label="Mechanism stages">
+          <article>
+            <span class="stage-number">01</span>
+            <h3>Construct</h3>
+            <p>Regional, classical, learned, transformer and optional correction routes contribute observed hypotheses with retained source identity.</p>
+          </article>
+          <article>
+            <span class="stage-number">02</span>
+            <h3>Relate</h3>
+            <p>Candidate-intrinsic evidence is evaluated together with agreement, harmonic structure, temporal support and source relations.</p>
+          </article>
+          <article>
+            <span class="stage-number">03</span>
+            <h3>Select</h3>
+            <p>A causal joint path returns one hypothesis that was actually observed instead of synthesizing an untraceable average.</p>
+          </article>
+          <article>
+            <span class="stage-number">04</span>
+            <h3>Report</h3>
+            <p>The selected value and evidence packet remain linked to a proposed release or review state without becoming a safety guarantee.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section evidence-section" id="evidence" aria-labelledby="evidence-title">
+      <div class="content-shell">
+        <div class="section-heading">
+          <div>
+            <p class="section-label">Evidence hierarchy</p>
+            <h2 id="evidence-title">Internal improvement and external transport are reported separately</h2>
+          </div>
+          <p>Participants, not video windows, anchor inference. The external evaluation was frozen before reference access; later refinements remain explicitly retrospective.</p>
+        </div>
+
+        <div class="table-wrap" role="region" aria-label="Key evidence table" tabindex="0">
+          <table>
+            <thead>
+              <tr>
+                <th>Evidence stage</th>
+                <th>Cohort</th>
+                <th>Protocol</th>
+                <th>Result</th>
+                <th>Permitted interpretation</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Joint V32 development</td>
+                <td>42 participants<br>439 windows</td>
+                <td>Nested participant-disjoint evaluation; seeds 704, 1704 and 2704</td>
+                <td><strong>1.835 BPM MAE</strong><br>96.3% within 10 BPM</td>
+                <td>Supports improved arbitration over the prior source-preserving selector.</td>
+              </tr>
+              <tr>
+                <td>Frozen V31 external evaluation</td>
+                <td>83 participants<br>2,120 windows</td>
+                <td>One-time frozen EMPD evaluation</td>
+                <td><strong>4.217 BPM MAE</strong><br>94.6% within 10 BPM</td>
+                <td>Superior to TS-CAN; superiority to matched ExtraTrees was not established.</td>
+              </tr>
+              <tr>
+                <td>Frozen release gate transport</td>
+                <td>Development OOF to EMPD</td>
+                <td>Identical threshold, no external retuning</td>
+                <td>31.0% to 2.0% proposed-release coverage</td>
+                <td>Exposes gate-score shift; does not establish calibrated safety or beneficial abstention.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <figure class="wide-figure evidence-figure">
+          <a href="assets/project-page/gate-transport.png" aria-label="Open the full-resolution frozen-gate transport figure">
+            <img src="assets/project-page/gate-transport.png" alt="Three-panel analysis showing research-score transport, proposed-release coverage and conditional error under the same frozen threshold" width="1964" height="828" loading="lazy">
+          </a>
+          <figcaption>The same frozen threshold proposed release for 31.0% of development out-of-fold windows but 2.0% of untouched EMPD windows. Selector output remained available; the release score did not transport as a calibrated safety signal.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section software-section" id="software" aria-labelledby="software-title">
+      <div class="content-shell">
+        <div class="section-heading">
+          <div>
+            <p class="section-label">Research software</p>
+            <h2 id="software-title">Evidence operations, not a bare prediction endpoint</h2>
+          </div>
+          <p>The reference implementation connects quality qualification, candidate evidence, release/review/retake states, audit records, report exports and an evidence-bounded local assistant.</p>
+        </div>
+        <div class="product-layout">
+          <figure class="product-figure">
+            <a href="assets/project-page/product-console.png" aria-label="Open the full-resolution product console screenshot">
+              <img src="assets/project-page/product-console.png" alt="VitalsSight research console showing cases, release, review and retake states" width="1440" height="1000" loading="lazy">
+            </a>
+            <figcaption>Research console with explicit workflow state, quality evidence and follow-up actions.</figcaption>
+          </figure>
+          <div class="software-copy">
+            <h3>Cross-platform research workflow</h3>
+            <ul class="check-list">
+              <li>Windows protected demonstration package</li>
+              <li>macOS and Linux source-based launcher</li>
+              <li>REST API and interactive OpenAPI documentation</li>
+              <li>PDF, JSON, Markdown, CSV and FHIR exports</li>
+              <li>Deterministic explanation fallback when a local model is unavailable</li>
+              <li>Raw uploaded media deleted after analysis</li>
+            </ul>
+            <div class="inline-actions">
+              <a class="button primary" href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG#quick-start">Run locally</a>
+              <a class="button secondary" href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/blob/main/docs/PRODUCT_FUNCTION_MATRIX_20260715.md">Function matrix</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section availability-section" id="availability" aria-labelledby="availability-title">
+      <div class="content-shell availability-grid">
+        <div>
+          <p class="section-label">Availability</p>
+          <h2 id="availability-title">Reproducibility with explicit data boundaries</h2>
+          <p>The public repository contains the research implementation, protocol descriptors, aggregate manuscript metrics and the exact submission-facing reproducibility package. It intentionally excludes raw videos, identifiable participant frames, provider-controlled labels, credentials and private execution logs.</p>
+          <div class="repo-box">
+            <code id="repo-url">https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG</code>
+            <button class="copy-button" type="button" data-copy-target="repo-url">Copy URL</button>
+          </div>
+        </div>
+        <div class="availability-links" aria-label="Repository resources">
+          <a href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG">
+            <strong>Source repository</strong>
+            <span>Implementation, tests and documentation</span>
+          </a>
+          <a href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/tree/main/reproducibility/v32_submission">
+            <strong>Submission package</strong>
+            <span>Frozen contracts, hashes and aggregate verification</span>
+          </a>
+          <a href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/blob/main/docs/DATA.md">
+            <strong>Data boundary</strong>
+            <span>Provider-controlled inputs and access requirements</span>
+          </a>
+          <a href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/blob/main/README.md">
+            <strong>README</strong>
+            <span>Installation, experiment map and evidence limitations</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="citation-band" id="citation" aria-labelledby="citation-title">
+      <div class="content-shell citation-layout">
+        <div>
+          <p class="section-label">Citation</p>
+          <h2 id="citation-title">Cite the frozen software version used</h2>
+        </div>
+        <p>The manuscript citation and permanent archive identifier will be added after publication. Until then, cite the repository URL and the exact commit SHA used for an analysis. Do not cite the mutable project page as a substitute for a frozen release.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="content-shell footer-layout">
+      <div>
+        <strong>VitalsSight</strong>
+        <p>Candidate-aware remote heart-rate inference research.</p>
+      </div>
+      <p>Research artifact only. No diagnosis, treatment recommendation, emergency decision or autonomous clinical release.</p>
+    </div>
+  </footer>
+</body>
+</html>
