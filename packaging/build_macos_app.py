@@ -116,6 +116,39 @@ def write_delivery_notes(folder: Path, metadata: dict[str, str]) -> None:
     (folder / "PACKAGE_INFO.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
 
+def repair_macos_cv2_crosslink(app: Path) -> dict[str, object]:
+    """Ensure the OpenCV loader in Resources can see its Frameworks extension."""
+    contents = app / "Contents"
+    loaders = sorted((contents / "Resources").glob("cv2/__init__.py"))
+    extensions = sorted((contents / "Frameworks").glob("cv2/cv2*.so"))
+    if len(loaders) != 1 or len(extensions) != 1:
+        raise RuntimeError(
+            "Unexpected OpenCV bundle layout: "
+            f"loaders={[str(path) for path in loaders]}, "
+            f"extensions={[str(path) for path in extensions]}"
+        )
+    loader_dir = loaders[0].parent
+    extension = extensions[0]
+    target = loader_dir / extension.name
+    expected = os.path.relpath(extension, loader_dir)
+    if target.is_symlink() and os.readlink(target) != expected:
+        target.unlink()
+    elif target.exists() and not target.is_symlink():
+        if target.samefile(extension):
+            return {"loader": str(loaders[0]), "extension": str(extension), "crosslink": str(target)}
+        target.unlink()
+    if not target.exists():
+        target.symlink_to(expected)
+    if not target.exists() or not target.samefile(extension):
+        raise RuntimeError(f"OpenCV extension crosslink is invalid: {target} -> {expected}")
+    return {
+        "loader": str(loaders[0]),
+        "extension": str(extension),
+        "crosslink": str(target),
+        "crosslink_target": os.readlink(target),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
@@ -191,6 +224,10 @@ def main() -> int:
     app = dist / "VitalsSight.app"
     if not app.is_dir():
         raise FileNotFoundError(f"PyInstaller did not create {app}")
+    cv2_layout = repair_macos_cv2_crosslink(app)
+    (output / "opencv_bundle_layout.json").write_text(
+        json.dumps(cv2_layout, indent=2), encoding="utf-8"
+    )
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(app)], check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", "--verbose=2", str(app)], check=True)
 
@@ -211,7 +248,18 @@ def main() -> int:
     )
     checksum = sha256_file(target)
     (delivery / f"SHA256_{label}.txt").write_text(f"{checksum}  {target.name}\n", encoding="ascii")
-    print(json.dumps({"app": str(app), "zip": str(target), "sha256": checksum, "metadata": metadata}, indent=2))
+    print(
+        json.dumps(
+            {
+                "app": str(app),
+                "zip": str(target),
+                "sha256": checksum,
+                "metadata": metadata,
+                "opencv_bundle_layout": cv2_layout,
+            },
+            indent=2,
+        )
+    )
     return 0
 
 

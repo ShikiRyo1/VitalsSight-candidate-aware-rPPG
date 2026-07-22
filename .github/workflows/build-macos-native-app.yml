@@ -76,6 +76,9 @@ jobs:
         run: |
           APP="build/macos/dist/VitalsSight.app"
           test -d "$APP"
+          cat build/macos/opencv_bundle_layout.json
+          find "$APP/Contents/Resources/cv2" -maxdepth 1 -print -exec ls -ld {} \;
+          find "$APP/Contents/Frameworks/cv2" -maxdepth 1 -print -exec ls -ld {} \;
           file "$APP/Contents/MacOS/VitalsSight" | tee build/macos/executable_architecture.txt
           file "$APP/Contents/MacOS/VitalsSight" | grep "${{ matrix.machine }}"
           codesign --verify --deep --strict --verbose=2 "$APP"
@@ -121,6 +124,7 @@ jobs:
           path: |
             ~/Library/Logs/VitalsSight/*.log
             build/macos/warn-*.txt
+            build/macos/opencv_bundle_layout.json
             build/macos/executable_architecture.txt
           if-no-files-found: warn
           retention-days: 14
@@ -141,6 +145,7 @@ jobs:
             build/macos/delivery/VitalsSight_macOS_${{ matrix.label }}_*.zip
             build/macos/delivery/SHA256_${{ matrix.label }}.txt
             build/macos/native_app_smoke_${{ matrix.label }}.json
+            build/macos/opencv_bundle_layout.json
             build/macos/executable_architecture.txt
           if-no-files-found: error
           retention-days: 30
