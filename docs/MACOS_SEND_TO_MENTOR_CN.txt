@@ -1,0 +1,18 @@
+VitalsSight macOS 研究演示版 - 导师首次使用
+
+请先打开 Apple 菜单 > 关于本机：
+- 芯片显示 Apple M1/M2/M3/M4/M5：使用 AppleSilicon ZIP。
+- 处理器显示 Intel：使用 Intel ZIP。
+
+操作步骤：
+1. 把收到的 ZIP 完整解压，不要在聊天软件或压缩包预览中直接运行。
+2. 第一次启动时，按住 Control 键点击 VitalsSight.app，选择“打开”，再确认“打开”。
+3. 等待启动窗口显示 VitalsSight is ready；浏览器会自动打开本地页面。
+4. 软件只在本机 127.0.0.1 运行，不需要安装 Python，也不需要作者电脑在线。
+
+若仍无法打开，请把以下两项发回：
+- Apple 菜单 > 关于本机中的芯片/处理器名称；
+- ~/Library/Logs/VitalsSight 文件夹内的日志。
+
+说明：当前研究版使用临时代码签名，因此首次启动必须通过 Control-click > 打开完成 macOS 单应用授权。要实现无提示双击，需要 Apple Developer ID 签名和 Apple 公证。
+本软件为研究演示，不是医疗器械，不提供自主临床诊断或放行。
