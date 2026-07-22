@@ -21,7 +21,9 @@ python scripts/run_vitalssight_local.py
 
 ### macOS
 
-Install Python 3.10-3.12, download and extract the complete repository, then double-click:
+For reviewer delivery, use the tested `AppleSilicon` or `Intel` native `.app` package produced by the [`build-macos-native-app` workflow](.github/workflows/build-macos-native-app.yml). The native package includes its runtime and does not require a local Python installation. See [the native macOS delivery guide](docs/MACOS_NATIVE_APP_DELIVERY.md).
+
+For source-based development, install Python 3.10-3.12, download and extract the complete repository, then double-click:
 
 ```text
 RUN_VITALSSIGHT_MAC.command

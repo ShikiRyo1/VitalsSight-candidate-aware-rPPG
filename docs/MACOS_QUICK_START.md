@@ -1,5 +1,11 @@
 # VitalsSight on macOS
 
+## Recommended reviewer package
+
+Use the architecture-specific native package produced by the `build-macos-native-app` workflow. It contains `VitalsSight.app` and a bundled Python runtime, so the recipient does not install Python or download application dependencies. Choose `AppleSilicon` for M-series Macs or `Intel` for older Intel Macs. See [Native macOS reviewer delivery](MACOS_NATIVE_APP_DELIVERY.md).
+
+The source launcher below remains available for developers and reproducibility work. It is not the recommended non-technical reviewer delivery.
+
 The Windows protected demonstration contains `VitalsSight.exe` and cannot run on macOS. Use the repository's native macOS launcher instead.
 
 ## Start the research workflow
