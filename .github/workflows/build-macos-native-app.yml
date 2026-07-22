@@ -59,6 +59,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-core.txt
           python -m pip install "pyinstaller==6.21.0" "pillow>=10,<12"
+          python - <<'PY'
+          import cv2
+          print("OpenCV", cv2.__version__, cv2.__file__)
+          assert cv2.__version__ == "4.11.0"
+          PY
 
       - name: Install and verify pinned runtime asset
         run: python scripts/setup_runtime_assets.py

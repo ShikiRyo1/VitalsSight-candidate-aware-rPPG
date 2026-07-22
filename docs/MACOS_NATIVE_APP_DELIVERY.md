@@ -13,4 +13,6 @@ The launcher starts the packaged UI and API on `127.0.0.1`, opens the browser, a
 
 Each delivery is built and tested on the matching GitHub-hosted macOS architecture. The workflow verifies the Mach-O architecture and code signature, starts the packaged UI and API, queries the assistant health and cases endpoints, checks the Streamlit page, validates the output JSON, and tests the final ZIP archive before upload.
 
+The native build uses one pinned OpenCV contrib distribution. MediaPipe requires that distribution, and it includes the standard OpenCV API; installing both standard and contrib wheels would place two owners over the same `cv2` package and is rejected by this packaging contract.
+
 A seamless normal double-click without the first-launch security prompt requires an Apple Developer ID certificate and Apple notarization. Those credentials are not embedded in the repository or research package.

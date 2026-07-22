@@ -7,7 +7,10 @@ plotly
 tqdm
 pyyaml
 h5py
-opencv-python
+# MediaPipe depends on the contrib distribution, which also contains the full
+# standard cv2 surface. Installing both OpenCV distributions makes frozen
+# applications non-deterministic because both packages own the same cv2 files.
+opencv-contrib-python==4.11.0.86
 mediapipe
 streamlit
 fastapi
