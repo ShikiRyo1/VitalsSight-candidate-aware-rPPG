@@ -208,12 +208,18 @@ class ServicePair:
         self.api_url = f"http://127.0.0.1:{api_port}"
         self.processes: list[subprocess.Popen[bytes]] = []
         self.logs: list[object] = []
+        self.process_names: list[str] = []
+        self.log_paths: dict[str, tuple[Path, Path]] = {}
 
     def start(self) -> None:
         for worker, port in (("api", self.api_port), ("ui", self.ui_port)):
-            stdout = (log_root() / f"desktop_{worker}.stdout.log").open("wb")
-            stderr = (log_root() / f"desktop_{worker}.stderr.log").open("wb")
+            stdout_path = log_root() / f"desktop_{worker}.stdout.log"
+            stderr_path = log_root() / f"desktop_{worker}.stderr.log"
+            stdout = stdout_path.open("wb")
+            stderr = stderr_path.open("wb")
             self.logs.extend((stdout, stderr))
+            self.process_names.append(worker)
+            self.log_paths[worker] = (stdout_path, stderr_path)
             self.processes.append(
                 subprocess.Popen(
                     worker_command(worker, port),
@@ -237,8 +243,17 @@ class ServicePair:
     def wait_ready(self, timeout: float = 150.0) -> dict[str, object]:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if any(process.poll() is not None for process in self.processes):
-                raise RuntimeError("A VitalsSight service exited during startup; inspect the application logs")
+            exited = [
+                (name, process.returncode)
+                for name, process in zip(self.process_names, self.processes)
+                if process.poll() is not None
+            ]
+            if exited:
+                details = []
+                for name, returncode in exited:
+                    _stdout, stderr = self.log_paths[name]
+                    details.append(f"{name} exited with code {returncode}:\n{tail_text(stderr)}")
+                raise RuntimeError("A VitalsSight service exited during startup.\n\n" + "\n\n".join(details))
             health = http_json(f"{self.api_url}/api/v1/assistant/health", timeout=1.5)
             if isinstance(health, dict) and http_ready(self.ui_url, timeout=1.5):
                 return health
@@ -266,6 +281,14 @@ class ServicePair:
             (user_data_root() / "desktop_services.json").unlink(missing_ok=True)
         except OSError:
             pass
+
+
+def tail_text(path: Path, lines: int = 24) -> str:
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as error:
+        return f"Unable to read {path}: {error}"
+    return "\n".join(content[-lines:]) or f"No diagnostic output was written to {path}"
 
 
 def smoke_test(ui_port: int, api_port: int) -> int:

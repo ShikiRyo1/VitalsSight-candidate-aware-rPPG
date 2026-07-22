@@ -93,6 +93,33 @@ jobs:
           PY
           cp "$RESULT" "build/macos/native_app_smoke_${{ matrix.label }}.json"
 
+      - name: Print packaged-service diagnostics on failure
+        if: failure()
+        shell: bash
+        run: |
+          echo "=== launcher ==="
+          cat "$HOME/Library/Logs/VitalsSight/desktop_launcher.log" 2>/dev/null || true
+          echo "=== API stdout ==="
+          cat "$HOME/Library/Logs/VitalsSight/desktop_api.stdout.log" 2>/dev/null || true
+          echo "=== API stderr ==="
+          cat "$HOME/Library/Logs/VitalsSight/desktop_api.stderr.log" 2>/dev/null || true
+          echo "=== UI stdout ==="
+          cat "$HOME/Library/Logs/VitalsSight/desktop_ui.stdout.log" 2>/dev/null || true
+          echo "=== UI stderr ==="
+          cat "$HOME/Library/Logs/VitalsSight/desktop_ui.stderr.log" 2>/dev/null || true
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VitalsSight-macOS-${{ matrix.label }}-failure-logs
+          path: |
+            ~/Library/Logs/VitalsSight/*.log
+            build/macos/warn-*.txt
+            build/macos/executable_architecture.txt
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Validate delivery ZIP
         shell: bash
         run: |
