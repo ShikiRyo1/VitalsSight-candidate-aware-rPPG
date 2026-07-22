@@ -2,7 +2,7 @@
 
 Research code for candidate-aware, camera-based heart-rate estimation with an explicit release/review output contract.
 
-**[Project website](https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/)** | **[Reproducibility package](reproducibility/v32_submission/)** | **[macOS quick start](docs/MACOS_QUICK_START.md)** | **[Data boundary](docs/DATA.md)**
+**[Project website](https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/)** | **[Native macOS downloads](https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/releases/tag/v0.2.0-macos.1)** | **[Reproducibility package](reproducibility/v32_submission/)** | **[macOS quick start](docs/MACOS_QUICK_START.md)** | **[Data boundary](docs/DATA.md)**
 
 VitalsSight preserves multiple heart-rate hypotheses from classical, regional and learned routes, compares candidate-level and cross-candidate evidence, and returns either an estimate with an evidence packet or a review state. The repository accompanies the manuscript *VitalsSight preserves competing remote heart-rate hypotheses for evidence-linked review*.
 
@@ -21,7 +21,7 @@ python scripts/run_vitalssight_local.py
 
 ### macOS
 
-For reviewer delivery, use the tested `AppleSilicon` or `Intel` native `.app` package produced by the [`build-macos-native-app` workflow](.github/workflows/build-macos-native-app.yml). The native package includes its runtime and does not require a local Python installation. See [the native macOS delivery guide](docs/MACOS_NATIVE_APP_DELIVERY.md).
+For reviewer delivery, download the tested native `.app` package from the [macOS 0.2.0 release](https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/releases/tag/v0.2.0-macos.1): choose `AppleSilicon` for Apple M-series Macs or `Intel` for older Intel Macs. The native package includes its runtime and does not require a local Python installation or a connection to the author's computer. Extract the ZIP completely; on first launch, Control-click `VitalsSight.app`, choose **Open**, and confirm **Open**. See [the native macOS delivery guide](docs/MACOS_NATIVE_APP_DELIVERY.md).
 
 For source-based development, install Python 3.10-3.12, download and extract the complete repository, then double-click:
 
