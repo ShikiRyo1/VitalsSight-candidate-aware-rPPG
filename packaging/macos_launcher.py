@@ -18,6 +18,12 @@ APP_NAME = "VitalsSight Research Demo"
 DEFAULT_UI_PORT = 8561
 DEFAULT_API_PORT = 8061
 
+# PyInstaller separates Python resources and native extensions inside a macOS
+# .app. OpenCV's supported loader switch makes its native-extension directory
+# take precedence over the cross-linked Python package during bootstrap.
+if sys.platform == "darwin" and getattr(sys, "frozen", False):
+    setattr(sys, "OpenCV_REPLACE_SYS_PATH_0", True)
+
 
 def bundle_root() -> Path:
     if getattr(sys, "frozen", False):
