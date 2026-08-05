@@ -57,6 +57,7 @@ artifacts_*.log
 # Documents and editor noise
 *.docx
 *.pdf
+!docs/manuscript/VitalsSight_NPJ_DM_manuscript.pdf
 *.pptx
 .DS_Store
 Thumbs.db

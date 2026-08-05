@@ -2,9 +2,9 @@
 
 Research code for candidate-aware, camera-based heart-rate estimation with an explicit release/review output contract.
 
-**[Project website](https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/)** | **[Reproducibility package](reproducibility/v32_submission/)** | **[macOS quick start](docs/MACOS_QUICK_START.md)** | **[Data boundary](docs/DATA.md)**
+**[Project website](https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/)** | **[Author manuscript (PDF)](docs/manuscript/VitalsSight_NPJ_DM_manuscript.pdf)** | **[Reproducibility package](reproducibility/v32_submission/)** | **[macOS quick start](docs/MACOS_QUICK_START.md)** | **[Data boundary](docs/DATA.md)**
 
-VitalsSight preserves multiple heart-rate hypotheses from classical, regional and learned routes, compares candidate-level and cross-candidate evidence, and returns either an estimate with an evidence packet or a review state. The repository accompanies the manuscript *VitalsSight preserves competing remote heart-rate hypotheses for evidence-linked review*.
+VitalsSight preserves multiple heart-rate hypotheses from classical, regional and learned routes, compares candidate-level and cross-candidate evidence, and returns either an estimate with an evidence packet or a review state. The repository accompanies the author manuscript *VitalsSight: A Candidate-Aware Framework and Auditable Output Contract for Contactless Heart Rate Monitoring*.
 
 ## Quick start
 
@@ -170,6 +170,16 @@ ADULT_DATA_ROOT=/path/to/datasets/adult
 
 See [docs/DATA.md](docs/DATA.md) for the dataset boundary and [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md) for the experiment map.
 
+## Manuscript
+
+The current 26-page author manuscript is available as a versioned repository artifact:
+
+**[Download VitalsSight_NPJ_DM_manuscript.pdf](docs/manuscript/VitalsSight_NPJ_DM_manuscript.pdf)**
+
+> Yuhui Wu, Zhe Chen, Kai Li, Rob M. Ewing, Zehor Belkhatir and Yihua Wang. *VitalsSight: A Candidate-Aware Framework and Auditable Output Contract for Contactless Heart Rate Monitoring*.
+
+This PDF is the author-final manuscript supplied on 5 August 2026. It is made available for research transparency and is not represented here as peer reviewed, accepted or formally published. File provenance and SHA-256 are recorded in [`docs/manuscript/README.md`](docs/manuscript/README.md).
+
 ## Manuscript experiment map
 
 | Manuscript component | Public entry point |
@@ -189,7 +199,7 @@ The numbered filenames are retained to preserve the provenance of the executed p
 
 ## Evidence boundaries
 
-The primary retained internal estimate uses 42 UBFC-rPPG participants, 439 windows and model seeds 704, 1704 and 2704. The reported across-seed dispersion is not participant-level uncertainty. Risk-coverage analyses are exploratory and did not establish beneficial abstention or a participant-level guarantee. Protocol-specific stress results must not be pooled across datasets or statistical units. See `reproducibility/` for the machine-readable summary and [`reproducibility/v32_submission/`](reproducibility/v32_submission/) for the exact V32 analysis package and evidence boundaries.
+The primary retained internal estimate uses 42 UBFC-rPPG participants, 439 windows and model seeds 704, 1704 and 2704. The full selector achieved a window-level MAE of 1.646 &plusmn; 0.051 BPM, RMSE of 4.946 &plusmn; 0.186 BPM and 96.8 &plusmn; 0.0% of estimates within 10 BPM. The reported dispersion is algorithmic variation across seeds, not participant-level uncertainty or a participant confidence interval. Route comparisons are unmatched source audits, and risk-coverage analyses are exploratory negative diagnostics that did not establish beneficial abstention, calibrated safety or a participant-level guarantee. Protocol-specific stress results must not be pooled across datasets or statistical units. See `reproducibility/` for the machine-readable summary and [`reproducibility/v32_submission/`](reproducibility/v32_submission/) for the exact V32 analysis package and evidence boundaries.
 
 ## Repository structure
 
@@ -206,7 +216,7 @@ tests/               Public contract and leakage checks
 
 ## Citation and availability
 
-The manuscript citation will be added after publication. Until then, cite the repository URL and commit SHA used for an analysis. A tagged archival release and DOI should replace the mutable branch URL in the final accepted manuscript.
+The author manuscript can be read [here](docs/manuscript/VitalsSight_NPJ_DM_manuscript.pdf), but no journal citation or manuscript DOI is claimed before formal publication. For software analyses, cite the repository URL and exact commit SHA. A tagged archival release and DOI should replace the mutable branch URL when a permanent software release is deposited.
 
 No software license is granted by publication of this repository unless a `LICENSE` file is added by the authors. Copyright remains with the project authors.
 

@@ -57,6 +57,17 @@ try {
     const missingTargets = await page.evaluate((targets) => targets.filter((target) => target !== '#' && !document.querySelector(target)), internalTargets);
     if (missingTargets.length) throw new Error(`${profile.name}: missing hash targets ${missingTargets.join(', ')}`);
 
+    const manuscriptLink = page.locator('a[data-manuscript-link]').first();
+    if (await manuscriptLink.count() !== 1) throw new Error(`${profile.name}: manuscript link is missing`);
+    const manuscriptHref = await manuscriptLink.getAttribute('href');
+    const manuscriptUrl = new URL(manuscriptHref, page.url()).toString();
+    const manuscriptResponse = await page.request.head(manuscriptUrl);
+    const manuscriptType = manuscriptResponse.headers()['content-type'] || '';
+    const manuscriptBytes = Number(manuscriptResponse.headers()['content-length'] || 0);
+    if (!manuscriptResponse.ok()) throw new Error(`${profile.name}: manuscript returned ${manuscriptResponse.status()}`);
+    if (!manuscriptType.includes('application/pdf')) throw new Error(`${profile.name}: manuscript content type is ${manuscriptType}`);
+    if (manuscriptBytes <= 0) throw new Error(`${profile.name}: manuscript content length is missing`);
+
     const layout = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
@@ -96,6 +107,7 @@ try {
       internalTargetCount: internalTargets.length,
       layout,
       copyControl: copyLabel,
+      manuscript: { href: manuscriptHref, contentType: manuscriptType, bytes: manuscriptBytes },
       consoleErrors,
       pageErrors,
       status: 'PASS',
