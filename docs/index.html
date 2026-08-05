@@ -11,6 +11,14 @@
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/">
   <meta property="og:image" content="https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/assets/project-page/method-overview.png">
+  <meta name="citation_title" content="VitalsSight: A Candidate-Aware Framework and Auditable Output Contract for Contactless Heart Rate Monitoring">
+  <meta name="citation_author" content="Yuhui Wu">
+  <meta name="citation_author" content="Zhe Chen">
+  <meta name="citation_author" content="Kai Li">
+  <meta name="citation_author" content="Rob M. Ewing">
+  <meta name="citation_author" content="Zehor Belkhatir">
+  <meta name="citation_author" content="Yihua Wang">
+  <meta name="citation_pdf_url" content="https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/manuscript/VitalsSight_NPJ_DM_manuscript.pdf">
   <title>VitalsSight | Candidate-aware remote heart-rate inference</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="assets/project-page/site.css">
@@ -51,10 +59,11 @@
         <p class="hero-summary">Multiple plausible heart-rate hypotheses remain visible until selection. The selected value, competing evidence and proposed release or review state are returned as separate, traceable fields.</p>
         <div class="hero-actions" aria-label="Project resources">
           <a class="button primary" href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/releases/tag/v0.2.0-macos.1">Download macOS app</a>
+          <a class="button secondary" data-manuscript-link href="manuscript/VitalsSight_NPJ_DM_manuscript.pdf">Read manuscript (PDF)</a>
           <a class="button secondary" href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG">View code</a>
           <a class="button text-button" href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/tree/main/reproducibility">Reproducibility package</a>
         </div>
-        <p class="status-line"><span class="status-dot" aria-hidden="true"></span> Manuscript in preparation. Research use only.</p>
+        <p class="status-line"><span class="status-dot" aria-hidden="true"></span> Author manuscript available. Not peer reviewed. Research use only.</p>
       </div>
     </section>
 
@@ -62,19 +71,19 @@
       <div class="content-shell metric-grid">
         <div class="metric">
           <strong>42</strong>
-          <span>development participants</span>
+          <span>primary internal participants</span>
         </div>
         <div class="metric">
-          <strong>1.835 BPM</strong>
-          <span>participant-equal development MAE</span>
+          <strong>439</strong>
+          <span>subject-disjoint analyzed windows</span>
         </div>
         <div class="metric">
-          <strong>83</strong>
-          <span>untouched external participants</span>
+          <strong>1.646 &plusmn; 0.051 BPM</strong>
+          <span>window-level MAE across three seeds</span>
         </div>
         <div class="metric">
-          <strong>4.217 BPM</strong>
-          <span>frozen external selector MAE</span>
+          <strong>96.8 &plusmn; 0.0%</strong>
+          <span>estimates within 10 BPM</span>
         </div>
       </div>
     </section>
@@ -84,7 +93,7 @@
         <p class="section-label">Study overview</p>
         <h2 id="abstract-title">Why preserve competing hypotheses?</h2>
         <p class="lead">Remote photoplethysmography pipelines commonly collapse a video window into one heart rate even when several hypotheses remain plausible. This makes it difficult to distinguish candidate absence from an arbitration error or an unresolved source conflict.</p>
-        <p>VitalsSight preserves source identity, ranks observed hypotheses using prediction-time evidence and reports the selected value separately from a proposed release or review state. In participant-disjoint development, the joint candidate path achieved a participant-equal mean absolute error of 1.835 beats per minute in 42 participants. A frozen base selector was then evaluated once in 83 untouched participants and 2,120 windows, achieving 4.217 beats per minute. It outperformed single-route TS-CAN but did not differ from matched ExtraTrees. The separately frozen release gate transported poorly, identifying cross-domain score shift rather than loss of selector output.</p>
+        <p>VitalsSight preserves source identity, ranks observed hypotheses using prediction-time evidence and reports the selected value separately from a proposed release or review state. In the primary subject-disjoint internal protocol, 439 windows from 42 UBFC-rPPG participants were evaluated across model seeds 704, 1704 and 2704. The full selector achieved a window-level MAE of 1.646 &plusmn; 0.051 BPM, RMSE of 4.946 &plusmn; 0.186 BPM and 96.8 &plusmn; 0.0% of estimates within 10 BPM. These values are internal, protocol-bound estimates; the dispersion is across model seeds rather than a participant-level confidence interval, route comparisons are unmatched source audits, and the release analysis did not establish beneficial abstention or calibrated clinical safety.</p>
         <aside class="boundary-note" aria-label="Claim boundary">
           <strong>Claim boundary</strong>
           <p>The work supports traceable candidate-preserving inference. It does not establish calibrated clinical safety, autonomous release, real-time clinical utility or medical-device performance.</p>
@@ -237,6 +246,10 @@
           </div>
         </div>
         <div class="availability-links" aria-label="Repository resources">
+          <a data-manuscript-link href="manuscript/VitalsSight_NPJ_DM_manuscript.pdf">
+            <strong>Author manuscript</strong>
+            <span>26-page PDF with the final title, analyses and evidence boundaries</span>
+          </a>
           <a href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/releases/tag/v0.2.0-macos.1">
             <strong>Native macOS application</strong>
             <span>Tested Apple Silicon and Intel downloads</span>
@@ -267,7 +280,7 @@
           <p class="section-label">Citation</p>
           <h2 id="citation-title">Cite the frozen software version used</h2>
         </div>
-        <p>The manuscript citation and permanent archive identifier will be added after publication. Until then, cite the repository URL and the exact commit SHA used for an analysis. Do not cite the mutable project page as a substitute for a frozen release.</p>
+        <p>The current PDF is an author-final manuscript and is not represented as peer reviewed or formally published. A journal citation and permanent manuscript identifier will be added only after publication. For software analyses, cite the repository URL and exact commit SHA rather than the mutable project page alone.</p>
       </div>
     </section>
   </main>
