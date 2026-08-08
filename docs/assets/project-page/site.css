@@ -448,6 +448,17 @@ figcaption {
   line-height: 1.5;
 }
 
+.figure-source {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.figure-source a {
+  color: var(--blue);
+  font-weight: 700;
+}
+
 .mechanism-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -524,8 +535,11 @@ tbody tr:hover {
   background: #f8fafb;
 }
 
-.evidence-figure {
-  margin-top: 54px;
+.evidence-note {
+  max-width: 980px;
+  margin: 24px 0 0;
+  color: var(--muted);
+  font-size: 14px;
 }
 
 .product-layout {
@@ -545,6 +559,14 @@ tbody tr:hover {
 
 .software-copy h3 {
   font-size: 26px;
+}
+
+.software-validation {
+  margin: 24px 0 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .check-list {

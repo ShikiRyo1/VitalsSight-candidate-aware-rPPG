@@ -2,9 +2,13 @@
 
 Research code for candidate-aware, camera-based heart-rate estimation with an explicit release/review output contract.
 
-**[Project website](https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/)** | **[Author manuscript (PDF)](docs/manuscript/VitalsSight_NPJ_DM_manuscript.pdf)** | **[Native macOS downloads](https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/releases/tag/v0.2.0-macos.1)** | **[Reproducibility package](reproducibility/v32_submission/)** | **[macOS quick start](docs/MACOS_QUICK_START.md)** | **[Data boundary](docs/DATA.md)**
+**[Project website](https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/)** | **[Author manuscript (PDF)](docs/manuscript/VitalsSight_NPJ_DM_manuscript.pdf)** | **[Editable Figure 1](docs/manuscript/VitalsSight_Figure1_v50_Evidence_Compass_Provenance_editable.pptx)** | **[Native macOS downloads](https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/releases/tag/v0.2.0-macos.1)** | **[Extended audit package](reproducibility/v32_submission/)** | **[Data boundary](docs/DATA.md)**
 
-VitalsSight preserves multiple heart-rate hypotheses from classical, regional and learned routes, compares candidate-level and cross-candidate evidence, and returns either an estimate with an evidence packet or a review state. The repository accompanies the author manuscript *VitalsSight: A Candidate-Aware Framework and Auditable Output Contract for Contactless Heart Rate Monitoring*.
+VitalsSight is a candidate-aware supervised framework for camera-based heart-rate monitoring. It retains competing pulse candidates from regional, classical, learned, transformer and optional correction routes before relation-aware selection, then reports the selected heart rate, its evidence packet and a proposed release/review state as separate outputs. The repository accompanies the author manuscript *VitalsSight: A Candidate-Aware Framework and Auditable Output Contract for Contactless Heart Rate Monitoring*.
+
+[![Final VitalsSight mechanism figure](docs/assets/project-page/method-overview.png)](docs/assets/project-page/method-overview.png)
+
+The web figure is the V50 post-PDF visual revision of the same mechanism. Its [editable PowerPoint source](docs/manuscript/VitalsSight_Figure1_v50_Evidence_Compass_Provenance_editable.pptx) changes the presentation, not the equations, metrics or claim boundaries of the author manuscript.
 
 ## Quick start
 
@@ -152,6 +156,8 @@ node scripts/validate_browser_product.mjs http://127.0.0.1:8501 http://127.0.0.1
 
 The browser harness expects the Streamlit console and REST API to be running and uses a fresh database/upload directory supplied through `VITALSSIGHT_DB_PATH` and `VITALSSIGHT_UPLOAD_DIR`. The private fixtures are not distributed by this repository.
 
+The manuscript-reported finite conformance replay used seven hash-locked MCD-rPPG fixtures and 21 backend/API executions. It reproduced the prespecified workflow states exactly (3 release, 15 review and 3 retake), generated 21 linked evidence reports, deleted raw uploads after analysis, passed 50 unit tests and completed 83 desktop/mobile browser assertions without an unexpected HTTP or console error. This was a curated software-path replay, not an independent accuracy cohort, a full supervised/deep end-to-end evaluation or clinical-workflow validation.
+
 ## Quick check
 
 The public example exercises label-free ROI candidate aggregation and the release/review contract without downloading a dataset:
@@ -182,6 +188,8 @@ The current 26-page author manuscript is available as a versioned repository art
 
 This PDF is the author-final manuscript supplied on 5 August 2026. It is made available for research transparency and is not represented here as peer reviewed, accepted or formally published. File provenance and SHA-256 are recorded in [`docs/manuscript/README.md`](docs/manuscript/README.md).
 
+The current website uses the later V50 visual revision of Figure 1. The [editable PPTX](docs/manuscript/VitalsSight_Figure1_v50_Evidence_Compass_Provenance_editable.pptx) is provided separately so that the manuscript PDF remains an unchanged, hash-verifiable artifact.
+
 ## Manuscript experiment map
 
 | Manuscript component | Public entry point |
@@ -201,7 +209,16 @@ The numbered filenames are retained to preserve the provenance of the executed p
 
 ## Evidence boundaries
 
-The primary retained internal estimate uses 42 UBFC-rPPG participants, 439 windows and model seeds 704, 1704 and 2704. The full selector achieved a window-level MAE of 1.646 &plusmn; 0.051 BPM, RMSE of 4.946 &plusmn; 0.186 BPM and 96.8 &plusmn; 0.0% of estimates within 10 BPM. The reported dispersion is algorithmic variation across seeds, not participant-level uncertainty or a participant confidence interval. Route comparisons are unmatched source audits, and risk-coverage analyses are exploratory negative diagnostics that did not establish beneficial abstention, calibrated safety or a participant-level guarantee. Protocol-specific stress results must not be pooled across datasets or statistical units. See `reproducibility/` for the machine-readable summary and [`reproducibility/v32_submission/`](reproducibility/v32_submission/) for the exact V32 analysis package and evidence boundaries.
+The primary retained internal estimate uses 42 UBFC-rPPG participants, 439 windows and model seeds 704, 1704 and 2704. The full selector achieved a window-level MAE of 1.646 &plusmn; 0.051 BPM, RMSE of 4.946 &plusmn; 0.186 BPM and 96.8 &plusmn; 0.0% of estimates within 10 BPM. The subject-equal MAE was 1.662 BPM. The reported dispersion is algorithmic variation across seeds, not participant-level uncertainty or a participant confidence interval.
+
+| Protocol | Comparator MAE | VitalsSight MAE | Coverage | Released MAE | Interpretation |
+|---|---:|---:|---:|---:|---|
+| MCD-rPPG post-exercise/high-HR stress | 24.242 | 17.231 | 45.0% | 7.928 | Supportive subject-equal stress evidence |
+| UBFC-rPPG classical-pool stress | 45.738 | 8.774 | 74.9% | 5.971 | Candidate-pool stress evidence; subject-equal MAE 8.746 |
+| rPPG-10 canonical subject-level audit | 10.164 | 7.136 | 76.9% | 2.102 | Descriptive supportive stress evidence |
+| SCAMPS-full synthetic boundary | 30.234 | 29.009 | 100.0% | 29.015 | Negative synthetic boundary; 54.6% released error above 10 BPM |
+
+The rows use different statistical units and protocol keys and must not be pooled. The release/review analysis did not establish beneficial abstention, calibrated clinical safety, participant-level risk control or universal external generalisation. Route comparisons remain unmatched source audits. The machine-readable final headline summary is in [`reproducibility/headline_metrics.csv`](reproducibility/headline_metrics.csv) and [`reproducibility/protocol_summary.json`](reproducibility/protocol_summary.json); [`reproducibility/v32_submission/`](reproducibility/v32_submission/) is retained as an extended historical audit package rather than the homepage's final evidence narrative.
 
 ## Repository structure
 

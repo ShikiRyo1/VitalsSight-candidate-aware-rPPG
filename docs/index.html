@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="VitalsSight preserves competing remote heart-rate hypotheses and reports a selected value separately from an evidence-linked release or review proposal.">
+  <meta name="description" content="VitalsSight is a candidate-aware supervised framework for contactless heart-rate monitoring that keeps competing pulse hypotheses traceable through relation-aware selection and an evidence-linked output contract.">
   <meta name="theme-color" content="#f5f8fa">
   <link rel="canonical" href="https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/">
   <meta property="og:title" content="VitalsSight | Candidate-aware remote heart-rate inference">
@@ -55,8 +55,8 @@
       <div class="hero-content">
         <p class="eyebrow">Camera-based physiological measurement research</p>
         <h1 id="hero-title">VitalsSight</h1>
-        <p class="hero-kicker">Candidate-aware remote heart-rate inference with an evidence-linked review contract</p>
-        <p class="hero-summary">Multiple plausible heart-rate hypotheses remain visible until selection. The selected value, competing evidence and proposed release or review state are returned as separate, traceable fields.</p>
+        <p class="hero-kicker">A candidate-aware framework and auditable output contract for contactless heart-rate monitoring</p>
+        <p class="hero-summary">Competing pulse hypotheses remain visible until relation-aware selection. The selected heart rate, its evidence packet and the proposed release or review state remain linked but distinct.</p>
         <div class="hero-actions" aria-label="Project resources">
           <a class="button primary" href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/releases/tag/v0.2.0-macos.1">Download macOS app</a>
           <a class="button secondary" data-manuscript-link href="manuscript/VitalsSight_NPJ_DM_manuscript.pdf">Read manuscript (PDF)</a>
@@ -106,16 +106,18 @@
         <div class="section-heading">
           <div>
             <p class="section-label">Method</p>
-            <h2 id="method-title">One inference object, four explicit outputs</h2>
+            <h2 id="method-title">Trace one observed candidate from video evidence to output</h2>
           </div>
-          <p>Video evidence forms a variable-size constellation. A causal path selects an observed candidate; the selected heart rate, evidence packet, research score and proposed state remain separate.</p>
+          <p>Regional, classical, learned, transformer and optional correction routes contribute observed hypotheses. Relation-aware selection preserves the winning candidate's source identity while the value, evidence, research score and proposed state remain separate.</p>
         </div>
         <figure class="wide-figure">
           <a href="assets/project-page/method-overview.png" aria-label="Open the full-resolution method figure">
-            <img src="assets/project-page/method-overview.png" alt="Diagram of VitalsSight candidate construction, joint candidate-path selection and evidence-linked release or review output" width="1884" height="1336" loading="lazy">
+            <img src="assets/project-page/method-overview.png" alt="Final VitalsSight mechanism diagram showing observable video evidence, five candidate-generation route families, temporal candidate flow, four-channel selection rationale, an evidence packet, a research score and separate proposed release or review outputs" width="4800" height="3000" loading="lazy">
           </a>
-          <figcaption>Source-preserving joint selection with evidence-linked output. Reference heart rate and candidate error are confined to training or retrospective evaluation.</figcaption>
+          <figcaption>V50 mechanism overview. Competing trajectories remain visible through relation-aware selection; the selected heart rate, evidence packet, research score and proposed state remain linked but distinct. Reference heart rate and candidate error remain outside inference.</figcaption>
         </figure>
+
+        <p class="figure-source"><a href="manuscript/VitalsSight_Figure1_v50_Evidence_Compass_Provenance_editable.pptx">Download the editable Figure 1 PowerPoint source</a>. This post-PDF visual revision changes presentation only; the manuscript PDF remains unchanged and hash-verifiable.</p>
 
         <div class="mechanism-grid" aria-label="Mechanism stages">
           <article>
@@ -147,54 +149,56 @@
         <div class="section-heading">
           <div>
             <p class="section-label">Evidence hierarchy</p>
-            <h2 id="evidence-title">Internal improvement and external transport are reported separately</h2>
+            <h2 id="evidence-title">Primary performance and stress boundaries are reported separately</h2>
           </div>
-          <p>Participants, not video windows, anchor inference. The external evaluation was frozen before reference access; later refinements remain explicitly retrospective.</p>
+          <p>The primary result is a subject-disjoint internal evaluation. Cross-dataset analyses use protocol-specific units and are interpreted as stress or failure-boundary evidence rather than pooled external validation.</p>
         </div>
 
         <div class="table-wrap" role="region" aria-label="Key evidence table" tabindex="0">
           <table>
             <thead>
               <tr>
-                <th>Evidence stage</th>
-                <th>Cohort</th>
-                <th>Protocol</th>
-                <th>Result</th>
-                <th>Permitted interpretation</th>
+                <th>Dataset / protocol</th>
+                <th>Unit</th>
+                <th>Comparator MAE</th>
+                <th>VitalsSight result</th>
+                <th>Evidence role</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td>Joint V32 development</td>
-                <td>42 participants<br>439 windows</td>
-                <td>Nested participant-disjoint evaluation; seeds 704, 1704 and 2704</td>
-                <td><strong>1.835 BPM MAE</strong><br>96.3% within 10 BPM</td>
-                <td>Supports improved arbitration over the prior source-preserving selector.</td>
+                <td>UBFC-rPPG primary internal protocol</td>
+                <td>42 participants<br>439 repeated windows</td>
+                <td>Not a matched route comparison</td>
+                <td><strong>1.646 &plusmn; 0.051 BPM MAE</strong><br>4.946 &plusmn; 0.186 BPM RMSE<br>96.8 &plusmn; 0.0% within 10 BPM</td>
+                <td>Subject-disjoint internal estimate across three model seeds; subject-equal MAE 1.662 BPM.</td>
               </tr>
               <tr>
-                <td>Frozen V31 external evaluation</td>
-                <td>83 participants<br>2,120 windows</td>
-                <td>One-time frozen EMPD evaluation</td>
-                <td><strong>4.217 BPM MAE</strong><br>94.6% within 10 BPM</td>
-                <td>Superior to TS-CAN; superiority to matched ExtraTrees was not established.</td>
+                <td>MCD-rPPG post-exercise / high-HR stress</td>
+                <td>6 participant-equal units<br>60 windows</td>
+                <td>24.242 BPM</td>
+                <td><strong>17.231 BPM MAE</strong><br>45.0% coverage; 7.928 BPM released MAE</td>
+                <td>Supportive stress evidence, not pooled external validation.</td>
               </tr>
               <tr>
-                <td>Frozen release gate transport</td>
-                <td>Development OOF to EMPD</td>
-                <td>Identical threshold, no external retuning</td>
-                <td>31.0% to 2.0% proposed-release coverage</td>
-                <td>Exposes gate-score shift; does not establish calibrated safety or beneficial abstention.</td>
+                <td>rPPG-10 subject-level audit</td>
+                <td>26 participant-level units</td>
+                <td>10.164 BPM</td>
+                <td><strong>7.136 BPM MAE</strong><br>76.9% coverage; 2.102 BPM released MAE</td>
+                <td>Descriptive supportive stress evidence; source map remains pending.</td>
+              </tr>
+              <tr>
+                <td>SCAMPS-full synthetic boundary</td>
+                <td>2,800 synthetic samples</td>
+                <td>30.234 BPM</td>
+                <td>29.009 BPM MAE<br>29.015 BPM released MAE; 54.6% error above 10 BPM</td>
+                <td>Negative synthetic failure boundary.</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <figure class="wide-figure evidence-figure">
-          <a href="assets/project-page/gate-transport.png" aria-label="Open the full-resolution frozen-gate transport figure">
-            <img src="assets/project-page/gate-transport.png" alt="Three-panel analysis showing research-score transport, proposed-release coverage and conditional error under the same frozen threshold" width="1964" height="828" loading="lazy">
-          </a>
-          <figcaption>The same frozen threshold proposed release for 31.0% of development out-of-fold windows but 2.0% of untouched EMPD windows. Selector output remained available; the release score did not transport as a calibrated safety signal.</figcaption>
-        </figure>
+        <p class="evidence-note">Different datasets use different statistical units and protocol keys. These rows must not be pooled. The release/review score did not establish beneficial abstention, calibrated clinical safety, participant-level risk control or universal external generalisation.</p>
       </div>
     </section>
 
@@ -229,6 +233,7 @@
               <a class="button primary" href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/releases/tag/v0.2.0-macos.1">Download macOS app</a>
               <a class="button secondary" href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG#quick-start">Source quick start</a>
             </div>
+            <p class="software-validation"><strong>Finite conformance replay:</strong> seven hash-locked MCD-rPPG fixtures, 21 backend/API executions, exactly 3 release, 15 review and 3 retake states, 21 linked reports, 50 unit tests and 83 desktop/mobile browser assertions. This was a curated software-path replay, not an independent accuracy cohort, full supervised/deep end-to-end validation or clinical-workflow evidence.</p>
           </div>
         </div>
       </div>
@@ -239,7 +244,7 @@
         <div>
           <p class="section-label">Availability</p>
           <h2 id="availability-title">Reproducibility with explicit data boundaries</h2>
-          <p>The public repository contains the research implementation, protocol descriptors, aggregate manuscript metrics and the exact submission-facing reproducibility package. It intentionally excludes raw videos, identifiable participant frames, provider-controlled labels, credentials and private execution logs.</p>
+          <p>The public repository contains the research implementation, protocol descriptors, aggregate manuscript metrics and an extended audit package. It intentionally excludes raw videos, identifiable participant frames, provider-controlled labels, credentials and private execution logs.</p>
           <div class="repo-box">
             <code id="repo-url">https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG</code>
             <button class="copy-button" type="button" data-copy-target="repo-url">Copy URL</button>
@@ -250,6 +255,10 @@
             <strong>Author manuscript</strong>
             <span>26-page PDF with the final title, analyses and evidence boundaries</span>
           </a>
+          <a href="manuscript/VitalsSight_Figure1_v50_Evidence_Compass_Provenance_editable.pptx">
+            <strong>Editable Figure 1</strong>
+            <span>V50 post-PDF visual revision of the candidate-aware mechanism</span>
+          </a>
           <a href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/releases/tag/v0.2.0-macos.1">
             <strong>Native macOS application</strong>
             <span>Tested Apple Silicon and Intel downloads</span>
@@ -259,8 +268,8 @@
             <span>Implementation, tests and documentation</span>
           </a>
           <a href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/tree/main/reproducibility/v32_submission">
-            <strong>Submission package</strong>
-            <span>Frozen contracts, hashes and aggregate verification</span>
+            <strong>Extended audit package</strong>
+            <span>Historical frozen contracts, hashes and aggregate verification</span>
           </a>
           <a href="https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/blob/main/docs/DATA.md">
             <strong>Data boundary</strong>
