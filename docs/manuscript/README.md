@@ -6,9 +6,13 @@
 
 **Repository copy:** [VitalsSight_NPJ_DM_manuscript.pdf](VitalsSight_NPJ_DM_manuscript.pdf)
 
-**Editable Figure 1:** [VitalsSight_Figure1_v50_Evidence_Compass_Provenance_editable.pptx](VitalsSight_Figure1_v50_Evidence_Compass_Provenance_editable.pptx)
+**Current communication schematic:** [Adaptation of manuscript Figure 1](../assets/project-page/method-overview-social-20260906.png). This is a communication schematic, not a quantitative result.
 
-**Status:** Author-final manuscript supplied on 5 August 2026. This repository does not represent the file as peer reviewed, accepted or formally published.
+**Archived editable figure:** [VitalsSight_Figure1_v50_Evidence_Compass_Provenance_editable.pptx](VitalsSight_Figure1_v50_Evidence_Compass_Provenance_editable.pptx)
+
+**Status:** Accepted for publication in *npj Cardiovascular Health*, as reported by the authors on 6 September 2026. The exact acceptance date, online publication date and DOI have not been independently verified here. The archived author PDF is not represented as the publisher's version of record.
+
+**Provenance:** The PDF re-supplied on 6 September 2026 is byte-identical to the copy previously documented as supplied on 5 August 2026. No scientific content or numerical result was replaced in this update. The legacy `NPJ_DM` filename is retained to preserve artifact links and does not identify the journal.
 
 **Pages:** 26
 
@@ -22,4 +26,4 @@
 
 The PDF is provided for research transparency. The formal journal citation and permanent manuscript identifier should be added only after publication.
 
-The V50 PowerPoint is a post-PDF visual revision of the same candidate-aware mechanism. It is used by the project website and public communication materials. The source manuscript PDF remains unchanged so that its recorded hash and pagination stay verifiable; the V50 revision does not alter equations, metrics or claim boundaries.
+The V50 PowerPoint and [V50 PNG](../assets/project-page/method-overview.png) remain historical presentation artifacts, not the default project-page illustration. The September communication schematic follows the supplied manuscript's candidate-construction, selection and evidence-boundary structure. The source manuscript PDF remains unchanged so that its recorded hash and pagination stay verifiable. Neither communication illustration is new experimental evidence.

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Verify packaged hashes and the frozen V32 headline aggregate values."""
+"""Verify public LF-checkout bytes and unchanged historical V32 aggregates.
+
+The original manifest is retained for provenance. It used CRLF hashes for 17
+aggregate files that Git stores with LF. Scientific analysis programs and
+reported metrics are not changed by this checkout-level verification repair.
+"""
 
 from __future__ import annotations
 
@@ -37,20 +42,61 @@ def close(actual: str | float, expected: float, label: str) -> None:
     require(abs(value - expected) <= TOLERANCE, f"{label}: {value} != {expected}")
 
 
-def verify_hashes() -> int:
-    manifest = ROOT / "SHA256SUMS.txt"
-    require(manifest.is_file(), "SHA256SUMS.txt is missing")
-    checked = 0
+def manifest_entries(manifest: Path) -> list[tuple[str, str]]:
+    require(manifest.is_file(), f"manifest is missing: {manifest.name}")
+    entries = []
     for raw in manifest.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         expected, relative = line.split("  ", 1)
-        path = ROOT / relative
+        entries.append((expected.upper(), relative))
+    require(bool(entries), f"manifest is empty: {manifest.name}")
+    return entries
+
+
+def verify_hashes(root: Path = ROOT, manifest: Path | None = None) -> int:
+    """Require exact current bytes; never normalize a public-checkout mismatch."""
+    manifest = manifest or root / "SHA256SUMS.public-lf.txt"
+    checked = 0
+    for expected, relative in manifest_entries(manifest):
+        path = root / relative
         require(path.is_file(), f"manifest file is missing: {relative}")
-        require(sha256(path) == expected.upper(), f"hash mismatch: {relative}")
+        require(sha256(path) == expected, f"hash mismatch: {relative}")
         checked += 1
     return checked
+
+
+def verify_historical_aggregate_lineage(
+    root: Path = ROOT, manifest: Path | None = None
+) -> dict[str, int]:
+    """Audit original aggregate hashes without changing any historical file.
+
+    Only the explicitly documented LF-to-CRLF reconstruction is allowed for
+    provenance comparison. The separate current manifest still requires exact
+    bytes, so this is not a fallback that permits a changed public file.
+    """
+    manifest = manifest or root / "SHA256SUMS.txt"
+    result = {"exact_original_bytes": 0, "original_crlf_reconstructed": 0}
+    for expected, relative in manifest_entries(manifest):
+        if not relative.startswith("frozen_aggregates/"):
+            continue
+        path = root / relative
+        require(path.is_file(), f"historical aggregate is missing: {relative}")
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest().upper() == expected:
+            result["exact_original_bytes"] += 1
+            continue
+        # The public .gitattributes contract fixes LF, not arbitrary whitespace.
+        require(b"\r" not in data, f"non-LF historical aggregate: {relative}")
+        historical_bytes = data.replace(b"\n", b"\r\n")
+        require(
+            hashlib.sha256(historical_bytes).hexdigest().upper() == expected,
+            f"historical aggregate content mismatch: {relative}",
+        )
+        result["original_crlf_reconstructed"] += 1
+    require(sum(result.values()) > 0, "no historical aggregates were checked")
+    return result
 
 
 def verify_python_sources() -> int:
@@ -169,7 +215,10 @@ def verify_metrics() -> list[str]:
 def main() -> int:
     result = {
         "status": "PASS",
+        "scope": "Public LF-checkout integrity and historical aggregate verification, not experiment recomputation",
+        "checksum_manifest": "SHA256SUMS.public-lf.txt",
         "files_hashed": verify_hashes(),
+        "historical_aggregate_lineage": verify_historical_aggregate_lineage(),
         "python_sources_compiled": verify_python_sources(),
         "contract_checks": verify_contract(),
         "metric_checks": verify_metrics(),

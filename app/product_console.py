@@ -42,6 +42,7 @@ from src.product.console_service import (
 )
 from src.product.console_store import ConsoleStore, ScopedConsoleStore
 from src.product.build_identity import path_fingerprint, source_build_identity
+from src.product.runtime_readiness import build_runtime_readiness, validate_video_upload
 from src.product.identity import (
     IdentityContext,
     ROLE_AUDITOR,
@@ -135,14 +136,14 @@ def run() -> None:
         unsafe_allow_html=True,
     )
     st.sidebar.markdown(
-        f"<div class='vs-side-status'><i></i><div><b>{_escape(_ui('Workspace ready', '工作区就绪'))}</b>"
-        f"<span>{_escape(_ui('Evidence store connected', '证据存储已连接'))}</span></div></div>",
+        f"<div class='vs-side-status'><i></i><div><b>{_escape(_ui('Evidence store connected', '证据存储已连接'))}</b>"
+        f"<span>{_escape(_ui('Check runtime readiness in Overview', '运行前请查看总览中的环境检查'))}</span></div></div>",
         unsafe_allow_html=True,
     )
     section = st.sidebar.radio(
         _ui("Workspace", "工作区"),
         available_sections,
-        format_func=lambda item: ZH[item] if _is_zh() else item,
+        format_func=lambda item, chinese=_is_zh(): ZH[item] if chinese else item,
         label_visibility="collapsed",
         key="vs_section_radio",
     )
@@ -394,7 +395,110 @@ def _sync_language() -> None:
 
 
 def _sync_assessment_control(field: str, widget_key: str) -> None:
-    st.session_state[field] = st.session_state.get(widget_key)
+    value = st.session_state.get(widget_key)
+    if st.session_state.get(field) != value:
+        _invalidate_session_assessment()
+    st.session_state[field] = value
+
+
+def _invalidate_session_assessment() -> None:
+    """Never present an earlier result as the result for newly selected input."""
+    _remove_session_upload()
+    st.session_state["vs_assessment_result"] = None
+    st.session_state["vs_preflight"] = None
+
+
+def _assessment_context_fingerprint(
+    *,
+    organization_id: str,
+    participant_id: str,
+    purpose: str,
+    consent: bool,
+    active_consent: dict[str, Any] | None,
+) -> str:
+    """Bind a session preview to the exact participant and consent context."""
+    record = active_consent or {}
+    context = {
+        "organization_id": organization_id,
+        "participant_id": participant_id,
+        "purpose": purpose,
+        "consent": bool(consent),
+        "consent_id": record.get("consent_id", ""),
+        "document_version": record.get("document_version", ""),
+        "consent_status": record.get("status", ""),
+    }
+    return hashlib.sha256(json.dumps(context, sort_keys=True, ensure_ascii=True).encode("utf-8")).hexdigest()
+
+
+def _sync_assessment_context(fingerprint: str) -> bool:
+    previous = st.session_state.get("vs_assessment_context")
+    changed = previous != fingerprint
+    if changed:
+        _invalidate_session_assessment()
+    st.session_state["vs_assessment_context"] = fingerprint
+    return changed
+
+
+def _is_demo_case(case: dict[str, Any]) -> bool:
+    return (
+        case.get("input_kind") == "built_in_demo"
+        or case.get("source_name") == "Synthetic candidate-release demonstration"
+    )
+
+
+def _case_scope_text(case: dict[str, Any]) -> str:
+    return _ui("Synthetic demo", "合成演示") if _is_demo_case(case) else _ui("Uploaded / other evidence", "上传 / 其他证据")
+
+
+def _runtime_snapshot() -> dict[str, Any]:
+    # Read-only filesystem / dependency checks; never initialize or execute a model.
+    return build_runtime_readiness(project_root=PROJECT, db_path=DB_PATH, upload_dir=UPLOAD_DIR)
+
+
+def _runtime_readiness_panel(*, expanded: bool = False) -> None:
+    readiness = _runtime_snapshot()
+    passed = bool(readiness.get("preflight_passed"))
+    title = _ui("Runtime setup checks", "运行环境检查")
+    state = _ui("Checks passed", "配置检查通过") if passed else _ui("Setup needs attention", "有配置项需要处理")
+    with st.expander(f"{title} · {state}", expanded=expanded):
+        st.caption(_ui(
+            "Read-only checks, not an inference test. A passing setup is not a successful video run, measurement authorization, or clinical validation.",
+            "这是只读配置检查，不是推理测试。配置通过不代表视频运行成功、允许发布测量结果或已完成临床验证。",
+        ))
+        checks = readiness.get("checks", [])
+        labels = {
+            "pass": _ui("PASS", "通过"),
+            "warning": _ui("ATTENTION", "注意"),
+            "blocked": _ui("BLOCKED", "待修复"),
+        }
+        check_labels = {
+            "python_runtime": _ui("Python runtime", "Python 运行环境"),
+            "video_dependencies": _ui("Video dependencies", "视频处理依赖"),
+            "face_landmarker_asset": _ui("Face landmark asset", "人脸关键点模型文件"),
+            "state_storage": _ui("Evidence storage", "证据存储"),
+            "upload_storage": _ui("Local upload storage", "本地上传存储"),
+            "upload_policy": _ui("Upload limits", "上传限制"),
+            "authentication": _ui("Access mode", "访问模式"),
+            "assistant_optional": _ui("Optional AI assistant", "可选 AI 助手"),
+        }
+        for check in checks:
+            status = str(check.get("status", "warning"))
+            tone = status if status in labels else "warning"
+            action = str(check.get("action") or "")
+            st.markdown(
+                f"<div class='vs-readiness-row {tone}'><span>{_escape(labels.get(status, status))}</span>"
+                f"<div><b>{_escape(check_labels.get(check.get('id'), check.get('label', '')))}</b>"
+                f"<p>{_escape(check.get('detail', ''))}</p>"
+                + (f"<small>{_escape(_ui('Next action', '下一步'))}: {_escape(action)}</small>" if action else "")
+                + "</div></div>",
+                unsafe_allow_html=True,
+            )
+        st.caption(_ui(
+            "Technical check details are shown as reported by the local runtime. Demo cases can be explored without running participant video.",
+            "技术信息按本地运行环境原文展示。无需运行受试者视频，也可以查看合成演示流程。",
+        ))
+        if st.button(_ui("Recheck local setup", "重新检查本地配置"), icon=":material/refresh:", key="vs_readiness_refresh"):
+            st.rerun()
 
 
 def _ui(en: str, zh: str) -> str:
@@ -472,13 +576,28 @@ def _header(section: str) -> None:
 
 def _overview(store: ConsoleStore) -> None:
     available_sections = _sections_for_identity(_active_identity())
-    cases = store.list_cases()
-    reviews = store.list_reviews(include_closed=False)
-    releases = sum(case.get("decision") == "release" for case in cases)
-    retakes = sum(case.get("decision") == "retake" for case in cases)
-    open_reviews = sum(review.get("status") != "closed" for review in reviews)
-    quality = [float(case.get("quality_score") or 0) for case in cases]
+    all_cases = store.list_cases()
+    demo_count = sum(_is_demo_case(case) for case in all_cases)
+    other_count = len(all_cases) - demo_count
+    st.markdown(
+        f"<div class='vs-welcome'><div><span>{_escape(_ui('FROM VIDEO TO TRACEABLE EVIDENCE', '从视频到可追溯的研究证据'))}</span>"
+        f"<h2>{_escape(_ui('Understand the estimate. Keep the evidence.', '理解每一次估计，保留每一份依据。'))}</h2>"
+        f"<p>{_escape(_ui('Explore a labeled demo, prepare a consented recording, and inspect what can — and cannot — be reported.', '先体验明确标注的演示，再准备已授权的视频，逐项查看哪些结果可以输出、哪些仍需复核。'))}</p></div>"
+        f"<div class='vs-welcome-note'><b>{_escape(_ui('RESEARCH WORKSPACE', '研究工作区'))}</b>"
+        f"<span>{_escape(_ui('Not a diagnostic or clinical monitoring tool', '非诊断或临床监护工具'))}</span></div></div>",
+        unsafe_allow_html=True,
+    )
+    _runtime_readiness_panel()
 
+    st.markdown(
+        f"<div class='vs-start-grid'><div><b>01</b><h3>{_escape(_ui('Explore the demo', '体验合成演示'))}</h3>"
+        f"<p>{_escape(_ui('See release, review and retake states with no personal video or API key.', '无需个人视频或 API 密钥，即可了解放行、复核与重采。'))}</p></div>"
+        f"<div><b>02</b><h3>{_escape(_ui('Prepare your input', '准备研究输入'))}</h3>"
+        f"<p>{_escape(_ui('Check local setup, consent and retention before using a research recording.', '上传研究视频前，先核对本地配置、用途授权及留存方式。'))}</p></div>"
+        f"<div><b>03</b><h3>{_escape(_ui('Inspect and export', '检查与导出'))}</h3>"
+        f"<p>{_escape(_ui('Open the evidence, follow the next action, and export a bounded report.', '查看证据与下一步操作，再导出带适用边界的研究报告。'))}</p></div></div>",
+        unsafe_allow_html=True,
+    )
     st.markdown(
         f"<div class='vs-workflow-band'><div><span>{_escape(_ui('RECOMMENDED WORKFLOW', '推荐流程'))}</span>"
         f"<b>{_escape(_ui('Capture once, qualify first, then release or route with evidence.', '一次采集，先做质量检查，再凭证据放行或转交处理。'))}</b></div>"
@@ -490,19 +609,49 @@ def _overview(store: ConsoleStore) -> None:
     if quick_a.button(_ui("Start guided assessment", "开始引导式评估"), type="primary", icon=":material/add_circle:", width="stretch", disabled="New assessment" not in available_sections):
         _set_flash(_ui("Assessment opened. Start with purpose and consent.", "评估已打开，请先确认用途与授权。"), "info")
         _start_assessment()
-    if quick_b.button(_ui("Continue review work", "继续复核工作"), icon=":material/fact_check:", width="stretch", disabled="Review queue" not in available_sections):
-        _set_flash(_ui("Review queue opened. Select the highest-priority item first.", "已打开复核队列，请优先处理高优先级项目。"), "info")
-        _go("Review queue")
+    if quick_b.button(_ui("Use my research video", "使用我的研究视频"), icon=":material/video_file:", width="stretch", disabled="New assessment" not in available_sections, key="vs_start_upload"):
+        _set_flash(_ui("Upload workflow opened. Check setup and consent before running.", "已打开上传流程，运行前请核对配置和用途授权。"), "info")
+        _start_assessment(source="upload")
     if quick_c.button(_ui("Learn the full workflow", "学习完整流程"), icon=":material/menu_book:", width="stretch"):
         _set_flash(_ui("The role-based guide is open.", "已打开分角色操作教学。"), "info")
         _go("Help & settings")
 
+    st.subheader(_ui("Workspace evidence", "工作区证据"))
+    scope = st.radio(
+        _ui("Evidence scope", "证据范围"),
+        ["demo", "other", "all"],
+        index=1 if other_count else 0,
+        format_func={
+            "demo": _ui(f"Synthetic demos ({demo_count})", f"合成演示（{demo_count}）"),
+            "other": _ui(f"Uploaded / other ({other_count})", f"上传 / 其他（{other_count}）"),
+            "all": _ui(f"All cases ({len(all_cases)})", f"全部案例（{len(all_cases)}）"),
+        }.__getitem__,
+        horizontal=True,
+        key="vs_overview_scope",
+    )
+    cases = [case for case in all_cases if scope == "all" or _is_demo_case(case) == (scope == "demo")]
+    case_ids = {case.get("case_id") for case in cases}
+    reviews = [review for review in store.list_reviews(include_closed=False) if review.get("case", {}).get("case_id") in case_ids]
+    releases = sum(case.get("decision") == "release" for case in cases)
+    retakes = sum(case.get("decision") == "retake" for case in cases)
+    open_reviews = sum(review.get("status") != "closed" for review in reviews)
+    quality = pd.to_numeric(pd.Series([case.get("quality_score") for case in cases], dtype="object"), errors="coerce").dropna()
+    st.caption(_ui(
+        "Counts, queues and charts below follow this scope. These are workspace observations, not manuscript results or validated clinical performance.",
+        "下方计数、队列与图表均跟随当前范围。这些是工作区记录，不是论文实验结果或已验证的临床性能。",
+    ))
+    if not cases:
+        st.info(_ui(
+            "No evidence in this scope yet. Explore Synthetic demos, or choose Use my research video to begin a consented assessment. Existing cases are not deleted by this filter.",
+            "此范围暂无证据。可切换到合成演示，或点击“使用我的研究视频”开始授权评估。筛选不会删除已有案例。",
+        ))
+        return
     columns = st.columns(5)
     _metric(columns[0], _ui("Cases", "案例"), str(len(cases)), _ui("stored evidence packets", "已存证据包"))
     _metric(columns[1], _ui("Released", "已放行"), str(releases), _ui("policy gate passed", "通过策略门控"), tone="teal")
     _metric(columns[2], _ui("Open reviews", "待复核"), str(open_reviews), _ui("operator action required", "需要操作员处理"), tone="amber")
     _metric(columns[3], _ui("Retakes", "需重采"), str(retakes), _ui("capture issue detected", "检测到采集问题"), tone="coral")
-    _metric(columns[4], _ui("Median quality", "质量中位数"), f"{pd.Series(quality).median():.0%}", _ui("demonstration workspace", "演示工作区"))
+    _metric(columns[4], _ui("Median quality", "质量中位数"), f"{quality.median():.0%}" if not quality.empty else "—", _ui("observed score; not accuracy", "观察分数，不代表准确率"))
 
     left, right = st.columns([1.55, 0.9], gap="large")
     with left:
@@ -512,6 +661,7 @@ def _overview(store: ConsoleStore) -> None:
             status_rows.append(
                 {
                     _ui("Case", "案例"): case.get("display_id"),
+                    _ui("Evidence type", "证据类型"): _case_scope_text(case),
                     _ui("Decision", "决策"): _decision_text(str(case.get("decision"))),
                     _ui("HR", "心率"): _released_hr(case),
                     _ui("Quality", "质量"): _percent(case.get("quality_score")),
@@ -549,8 +699,8 @@ def _overview(store: ConsoleStore) -> None:
         _decision_chart(cases)
     st.info(
         _ui(
-            "This workspace is seeded with explicit synthetic workflow cases. They exercise the interface and do not replace manuscript metrics.",
-            "当前工作区使用明确标注的合成流程案例来测试产品交互，不能替代论文实验指标。",
+            "Synthetic demos exercise the interface only. Uploaded / other evidence is labeled separately and does not establish real-world accuracy or clinical validity.",
+            "合成演示仅用于测试产品交互。上传 / 其他证据单独标注，但同样不代表已证实真实场景准确率或临床有效性。",
         )
     )
 
@@ -802,11 +952,11 @@ def _new_assessment(store: ConsoleStore) -> None:
         purpose = st.selectbox(
             _ui("Intended research use", "研究用途"),
             ["workflow_validation", "algorithm_evaluation", "research_demo"],
-            format_func=lambda value: {
+            format_func={
                 "workflow_validation": _ui("Workflow validation", "流程验证"),
                 "algorithm_evaluation": _ui("Algorithm evaluation", "算法评估"),
                 "research_demo": _ui("Research demonstration", "研究演示"),
-            }[value],
+            }.__getitem__,
             key=purpose_key,
             on_change=_sync_assessment_control,
             args=("vs_purpose", purpose_key),
@@ -821,14 +971,17 @@ def _new_assessment(store: ConsoleStore) -> None:
         )
         if identity.auth_mode != "disabled":
             consent = active_consent is not None
+            governed_consent_key = f"vs_governed_consent_{selected_participant['participant_id'] if selected_participant else 'none'}_{purpose}"
+            # A read-only indicator must reflect today's store value rather than
+            # retain a checked widget state after the consent was withdrawn.
+            st.session_state[governed_consent_key] = consent
             st.checkbox(
                 _ui(
                     "A versioned consent record is active for this participant and purpose.",
                     "该受试者在当前用途下存在有效的版本化授权记录。",
                 ),
-                value=consent,
                 disabled=True,
-                key=f"vs_governed_consent_{selected_participant['participant_id'] if selected_participant else 'none'}_{purpose}",
+                key=governed_consent_key,
             )
             if active_consent:
                 st.caption(
@@ -848,6 +1001,17 @@ def _new_assessment(store: ConsoleStore) -> None:
                 args=("vs_consent", consent_key),
             )
         st.session_state["vs_consent"] = bool(consent)
+        context_changed = _sync_assessment_context(_assessment_context_fingerprint(
+            organization_id=identity.organization_id,
+            participant_id=str(selected_participant["participant_id"] if selected_participant else ""),
+            purpose=purpose,
+            consent=bool(consent),
+            active_consent=active_consent,
+        ))
+        if context_changed:
+            # Rerender progress as well as output so no earlier participant or
+            # withdrawn-consent preview survives this context transition.
+            st.rerun()
         retention_options = (
             ["delete_after_analysis"]
             if identity.auth_mode != "disabled"
@@ -858,10 +1022,10 @@ def _new_assessment(store: ConsoleStore) -> None:
         retention = st.radio(
             _ui("Raw-video handling", "原始视频处理"),
             retention_options,
-            format_func=lambda value: {
+            format_func={
                 "delete_after_analysis": _ui("Delete after analysis; retain derived evidence", "分析后删除，仅保留派生证据"),
                 "session_only": _ui("Keep locally until cleared or automatically expired", "本地保留至清除或自动过期"),
-            }[value],
+            }.__getitem__,
             key=retention_key,
             on_change=_sync_assessment_control,
             args=("vs_retention", retention_key),
@@ -872,36 +1036,78 @@ def _new_assessment(store: ConsoleStore) -> None:
             _ui("Choose a source", "选择来源"),
             ["stable", "conflict", "low_light", "upload"],
             horizontal=True,
-            format_func=lambda value: {
+            format_func={
                 "stable": _ui("Stable demo", "稳定样例"),
                 "conflict": _ui("Conflict demo", "冲突样例"),
                 "low_light": _ui("Low-light demo", "低照样例"),
                 "upload": _ui("Upload video", "上传视频"),
-            }[value],
+            }.__getitem__,
             key=source_key,
             on_change=_sync_assessment_control,
             args=("vs_source", source_key),
         )
 
         uploaded = None
+        upload_valid = True
         if source == "upload":
+            _runtime_readiness_panel()
+            upload_policy = _runtime_snapshot().get("upload_policy", {})
+            upload_limit = upload_policy.get("max_upload_bytes", 200 * 1024 * 1024)
+            st.info(_ui(
+                "Your uploaded video uses the local research runtime. It is not a replay of the manuscript's primary trained model; runtime checks and evidence gates still apply.",
+                "上传视频使用本地研究运行流程，不是论文主要训练模型的复现推理；仍需通过运行检查与证据门控。",
+            ))
             uploaded = st.file_uploader(
                 _ui("Adult RGB face video", "成人 RGB 人脸视频"),
                 type=["mp4", "mov", "avi", "mkv", "m4v"],
                 key=f"vs_video_upload_{st.session_state['vs_upload_widget_version']}",
+                on_change=_invalidate_session_assessment,
                 help=_ui(
                     "Use a stable, front-facing 20-30 second recording with even lighting.",
                     "建议使用正面、稳定、光照均匀的 20-30 秒视频。",
                 ),
             )
+            if uploaded is not None:
+                validation = validate_video_upload(uploaded.name, uploaded.size, max_upload_bytes=upload_limit)
+                upload_valid = bool(validation["ok"])
+                if upload_valid:
+                    st.success(_ui(
+                        f"File selected: {uploaded.name} · {uploaded.size / (1024 * 1024):.1f} MiB. Format and size checks passed.",
+                        f"已选择：{uploaded.name} · {uploaded.size / (1024 * 1024):.1f} MiB。格式与大小检查通过。",
+                    ))
+                    st.caption(_ui(
+                        "Selection does not run analysis. Decoding, duration, face and quality checks start only after consent and Run assessment.",
+                        "选择文件不会启动分析。确认授权并点击运行后，才会检查解码、时长、人脸与视频质量。",
+                    ))
+                else:
+                    st.error(_upload_error_text(validation))
+            if isinstance(upload_limit, int) and upload_limit > 0:
+                st.caption(_ui(
+                    f"Application limit: {upload_limit / (1024 * 1024):g} MiB per file; the host may impose a lower limit. MP4, MOV, AVI, MKV, M4V.",
+                    f"应用限制：每个文件 {upload_limit / (1024 * 1024):g} MiB；托管环境可能有更低限制。支持 MP4、MOV、AVI、MKV、M4V。",
+                ))
             _capture_guidance()
         else:
-            st.caption(
+            st.info(
                 _ui(
-                    "Built-in cases test release, review, and retake behavior without participant media.",
-                    "内置案例不包含受试者媒体，用于测试放行、复核和重采流程。",
+                    "SYNTHETIC DEMO — fixed example data, no participant video and no model inference. These cases show release, review and retake behavior; values are not accuracy evidence.",
+                    "合成演示 — 固定样例数据，无受试者视频，也不运行模型推理。样例仅展示放行、复核与重采流程，数值不能作为准确性证据。",
                 )
             )
+
+        missing = []
+        if identity.auth_mode != "disabled" and selected_participant is None:
+            missing.append(_ui("an authorized participant", "已授权受试者"))
+        if not consent:
+            missing.append(_ui("processing consent", "处理授权"))
+        if source == "upload" and uploaded is None:
+            missing.append(_ui("a video file", "视频文件"))
+        elif source == "upload" and not upload_valid:
+            missing.append(_ui("a valid upload", "符合要求的上传文件"))
+        if missing:
+            st.caption(_ui("Before running: ", "运行前尚需：") + " · ".join(missing))
+        else:
+            st.caption(_ui("Input checklist complete. Run to evaluate; an HR output is not guaranteed.", "输入清单已完成。点击运行进行评估，但不保证能够输出心率。"))
 
         action_col, reset_col = st.columns([1, 0.45])
         run_label = _ui("Run assessment", "运行评估")
@@ -924,6 +1130,8 @@ def _new_assessment(store: ConsoleStore) -> None:
                 message = _ui("Upload a video before running the assessment.", "运行评估前，请先上传视频。")
                 st.warning(message)
                 st.toast(message, icon=":material/upload_file:")
+            elif source == "upload" and not upload_valid:
+                st.warning(_ui("Replace the file or resolve the upload configuration before running.", "请更换文件或修复上传配置后再运行。"))
             else:
                 try:
                     if source == "upload":
@@ -953,7 +1161,10 @@ def _new_assessment(store: ConsoleStore) -> None:
                         action="assessment.create",
                         resource_type="case",
                         resource_id=result["case_id"],
-                        details={"decision": result["decision"], "raw_video_retained": False},
+                        details={
+                            "decision": result["decision"],
+                            "raw_video_retained": bool(source == "upload" and st.session_state.get("vs_upload_path")),
+                        },
                     )
                     st.session_state["vs_assessment_result"] = result
                     st.session_state["vs_focus_case"] = result["case_id"]
@@ -996,14 +1207,16 @@ def _new_assessment(store: ConsoleStore) -> None:
             _preflight_panel(preflight)
         else:
             st.markdown(
-                f"<div class='vs-empty'><b>{_escape(_ui('Waiting for input', '等待输入'))}</b>"
-                f"<span>{_escape(_ui('Quality checks run before the HR pipeline.', '质量检查会在心率流程之前运行。'))}</span></div>",
+                f"<div class='vs-empty'><b>{_escape(_ui('No assessment for this input yet', '当前输入尚未评估'))}</b>"
+                f"<span>{_escape(_ui('1. Confirm consent. 2. Select a demo or video. 3. Run assessment.', '1. 确认授权。2. 选择演示或视频。3. 点击运行评估。'))}</span>"
+                f"<small>{_escape(_ui('Changing input or consent clears the session preview, not saved cases.', '更改输入或授权会清除本次预览，不会删除已保存案例。'))}</small></div>",
                 unsafe_allow_html=True,
             )
 
         st.subheader(_ui("4. Evidence-linked output", "4. 证据关联输出"))
         result = st.session_state.get("vs_assessment_result")
         if result:
+            st.caption(_ui("Result provenance: ", "结果来源：") + _case_scope_text(result))
             _result_summary(result)
             _action_plan_panel(build_action_plan(result), compact=True)
             c1, c2 = st.columns(2)
@@ -1017,10 +1230,24 @@ def _new_assessment(store: ConsoleStore) -> None:
             st.caption(_ui("No result has been generated in this session.", "本次会话尚未生成结果。"))
 
 
+def _upload_error_text(validation: dict[str, Any]) -> str:
+    messages = {
+        422: _ui("The file is empty. Choose a non-empty video recording.", "文件为空，请选择有内容的视频。"),
+        415: _ui("Unsupported video extension. Choose MP4, MOV, AVI, MKV or M4V.", "不支持此视频扩展名，请使用 MP4、MOV、AVI、MKV 或 M4V。"),
+        413: _ui("The file exceeds the configured upload limit. Use a shorter research clip or ask the workspace administrator.", "文件超出上传限制。请使用更短的研究片段，或联系工作区管理员。"),
+        503: _ui("The upload limit is misconfigured. Ask the administrator to repair it before processing media.", "上传限制配置无效，请管理员修复后再处理媒体。"),
+    }
+    return messages.get(validation.get("status_code"), str(validation.get("message", "Upload validation failed.")))
+
+
 def _process_upload(uploaded: Any, *, purpose: str, retention: str) -> dict[str, Any]:
     _remove_session_upload()
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     data = uploaded.getvalue()
+    upload_limit = _runtime_snapshot().get("upload_policy", {}).get("max_upload_bytes", 200 * 1024 * 1024)
+    validation = validate_video_upload(uploaded.name, len(data), max_upload_bytes=upload_limit)
+    if not validation["ok"]:
+        raise ValueError(_upload_error_text(validation))
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256(data).hexdigest()[:12]
     safe_name = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in uploaded.name)
     path = UPLOAD_DIR / f"{digest}_{safe_name}"
@@ -3140,18 +3367,20 @@ def _set_flash(message: str, kind: str = "success") -> None:
     st.session_state["vs_flash_kind"] = kind if kind in {"success", "info", "warning", "error"} else "info"
 
 
-def _start_assessment() -> None:
+def _start_assessment(*, source: str = "stable") -> None:
     """Open a clean acquisition flow without discarding stored cases."""
     _remove_session_upload()
     _reset_upload_widget()
     for key in ("vs_assessment_result", "vs_preflight", "vs_upload_path"):
         st.session_state.pop(key, None)
     st.session_state["vs_consent"] = False
-    st.session_state["vs_source"] = "stable"
+    if source not in {"stable", "conflict", "low_light", "upload"}:
+        source = "stable"
+    st.session_state["vs_source"] = source
     st.session_state["vs_retention"] = "delete_after_analysis"
     for suffix in ("zh", "en"):
         st.session_state[f"vs_consent_control_{suffix}"] = False
-        st.session_state[f"vs_source_control_{suffix}"] = "stable"
+        st.session_state[f"vs_source_control_{suffix}"] = source
         st.session_state[f"vs_retention_control_{suffix}"] = "delete_after_analysis"
     _go("New assessment")
 
@@ -3270,6 +3499,25 @@ def _inject_css() -> None:
         .vs-env > div:last-child { border-right:0; padding-right:0; }
         .vs-env b { color: var(--primary); letter-spacing: 0; }
         .vs-rule { border-top: 1px solid var(--line); margin: 0.8rem 0 1.15rem; }
+        .vs-welcome { display:grid; grid-template-columns:minmax(0,1fr) minmax(180px,0.32fr); gap:1.2rem; padding:1.35rem 1.5rem; border:1px solid #c6d8e1; border-radius:12px; margin:0 0 0.85rem; background:linear-gradient(118deg,#eef5f8 0%,#ffffff 75%); box-shadow:var(--shadow-soft); }
+        .vs-welcome > div > span { color:var(--primary-dark); font-size:0.65rem; font-weight:800; letter-spacing:0.05em; }
+        .vs-welcome h2 { font-size:1.45rem !important; line-height:1.3; margin:0.38rem 0 0.55rem !important; color:var(--ink); }
+        .vs-welcome p { color:var(--ink-soft); font-size:0.84rem; line-height:1.65; max-width:790px; margin:0; }
+        .vs-welcome-note { border-left:1px solid #c6d8e1; align-self:center; padding-left:1rem; }
+        .vs-welcome-note b { display:block; font-size:0.66rem; letter-spacing:0.03em; color:var(--primary-dark); }
+        .vs-welcome-note span { display:block; font-size:0.74rem !important; font-weight:500 !important; letter-spacing:0 !important; color:var(--muted) !important; margin-top:0.4rem; line-height:1.5; }
+        .vs-start-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0.75rem; margin:0.7rem 0 1rem; }
+        .vs-start-grid > div { padding:0.9rem 1rem; border:1px solid var(--line); border-radius:8px; background:var(--paper); }
+        .vs-start-grid b { display:inline-block; font-size:0.67rem; color:var(--primary-dark); background:var(--primary-soft); padding:0.22rem 0.42rem; border-radius:4px; }
+        .vs-start-grid h3 { font-size:0.93rem !important; margin:0.52rem 0 0.32rem !important; color:var(--ink); }
+        .vs-start-grid p { font-size:0.77rem; line-height:1.6; margin:0; color:var(--ink-soft); }
+        .vs-readiness-row { display:grid; grid-template-columns:90px minmax(0,1fr); gap:0.7rem; padding:0.68rem 0; border-bottom:1px solid var(--line); }
+        .vs-readiness-row > span { align-self:start; justify-self:start; font-size:0.62rem; font-weight:800; border-radius:4px; padding:0.25rem 0.4rem; color:var(--teal); background:var(--teal-soft); }
+        .vs-readiness-row.warning > span { color:#84652f; background:var(--review-soft); }
+        .vs-readiness-row.blocked > span { color:#955a55; background:var(--rose-soft); }
+        .vs-readiness-row b { display:block; font-size:0.78rem; color:var(--ink); }
+        .vs-readiness-row p { font-size:0.75rem; color:var(--ink-soft); line-height:1.5; overflow-wrap:anywhere; margin:0.16rem 0; }
+        .vs-readiness-row small { display:block; font-size:0.7rem; color:var(--muted); line-height:1.5; overflow-wrap:anywhere; }
         .vs-section-rule { border-top: 1px solid var(--line); margin: 1.5rem 0; }
         h1, h2, h3 { letter-spacing: 0; color: var(--ink); }
         h2 { font-size: 1.18rem !important; }
@@ -3328,6 +3576,8 @@ def _inject_css() -> None:
         .vs-result b { display:block; font-size:1rem; color:var(--ink); margin-top:0.15rem; }
         .vs-empty { min-height:155px; display:grid; place-content:center; text-align:center; border:1px dashed var(--line-strong); border-radius:7px; background:#f9fbfc; color:var(--muted); padding:1rem; }
         .vs-empty b, .vs-empty span { display:block; }
+        .vs-empty span { font-size:0.8rem; margin-top:0.55rem; line-height:1.6; }
+        .vs-empty small { margin-top:0.75rem; font-size:0.7rem; line-height:1.6; }
         .vs-factor { border-left:4px solid var(--review); background:var(--paper); border-top:1px solid var(--line); border-right:1px solid var(--line); border-bottom:1px solid var(--line); border-radius:0 7px 7px 0; padding:0.62rem 0.74rem; margin-bottom:0.48rem; }
         .vs-factor.good { border-left-color:var(--teal); }
         .vs-factor b, .vs-factor span, .vs-factor small { display:block; }
@@ -3418,6 +3668,8 @@ def _inject_css() -> None:
         button[data-baseweb="tab"] { padding-left:0.85rem; padding-right:0.85rem; }
         @media (max-width: 1050px) {
             .vs-workflow-band { grid-template-columns:1fr; }
+            .vs-welcome { grid-template-columns:1fr; }
+            .vs-welcome-note { border-left:0; border-top:1px solid #c6d8e1; padding:0.7rem 0 0; }
             .vs-workflow-band ol { border-top:1px solid var(--line); padding-top:0.45rem; }
         }
         @media (max-width: 900px) {
@@ -3435,6 +3687,10 @@ def _inject_css() -> None:
         }
         @media (max-width: 620px) {
             .vs-workflow-band ol { grid-template-columns:repeat(2,minmax(0,1fr)); }
+            .vs-start-grid { grid-template-columns:1fr; }
+            .vs-welcome { padding:1rem; }
+            .vs-welcome h2 { font-size:1.2rem !important; }
+            .vs-readiness-row { grid-template-columns:76px minmax(0,1fr); gap:0.4rem; }
             .vs-workflow-band li:nth-child(3) { border-top:1px solid var(--line); }
             .vs-workflow-band li:nth-child(4) { border-top:1px solid var(--line); }
             .vs-step-strip, .vs-guidance-grid, .vs-io-strip, .vs-processing-contract { grid-template-columns: 1fr; }

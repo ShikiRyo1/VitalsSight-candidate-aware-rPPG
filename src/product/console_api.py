@@ -65,6 +65,11 @@ from src.product.reporting import (
     report_version_sha256,
 )
 from src.product.report_narrative import EvidenceBoundedReportNarrator
+from src.product.runtime_readiness import (
+    build_runtime_readiness,
+    get_upload_policy,
+    validate_video_upload,
+)
 
 
 class ReviewUpdate(BaseModel):
@@ -124,7 +129,8 @@ def create_app(
     auth = IdentityResolver(auth_settings or AuthSettings.from_env())
     upload_dir = Path(os.getenv("VITALSSIGHT_UPLOAD_DIR", resolved_db_path.parent / "uploads" / "api"))
     upload_dir.mkdir(parents=True, exist_ok=True)
-    max_upload_bytes = int(os.getenv("VITALSSIGHT_MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))
+    # Invalid limits disable intake with an actionable 503, not an import-time crash.
+    max_upload_bytes = get_upload_policy()["max_upload_bytes"]
     if seed_demo and not store.list_cases():
         for case in make_demo_cases():
             store.upsert_case(case, actor="demo-seed")
@@ -327,6 +333,26 @@ def create_app(
         cases = tenant_store.list_cases()
         tenant_store.log_access(action="case.list", resource_type="case")
         return sanitize_report_value({"count": len(cases), "items": cases, "claim_boundary": CLAIM_BOUNDARY})
+
+    @app.get("/api/v1/runtime/readiness")
+    def runtime_readiness(identity: IdentityContext = Depends(read_identity)) -> dict[str, Any]:
+        settings = auth.settings
+        result = build_runtime_readiness(
+            db_path=resolved_db_path,
+            upload_dir=upload_dir,
+            # Report the limit frozen for this app instance, not a changed process env.
+            environ={**os.environ, "VITALSSIGHT_MAX_UPLOAD_BYTES": str(max_upload_bytes)},
+            auth_config={
+                "mode": settings.mode,
+                "issuer_configured": bool(settings.issuer),
+                "audience_configured": bool(settings.audience),
+                "jwks_configured": bool(settings.jwks_url),
+                "test_shared_secret_configured": bool(settings.shared_secret),
+                "dev_identity_headers_enabled": settings.allow_dev_identity_headers,
+            },
+        )
+        scoped(identity).log_access(action="runtime.readiness", resource_type="runtime")
+        return sanitize_report_value({**result, "claim_boundary": CLAIM_BOUNDARY})
 
     @app.get("/api/v1/organization/context")
     def organization_context(identity: IdentityContext = Depends(read_identity)) -> dict[str, Any]:
@@ -715,10 +741,10 @@ def create_app(
 
         original_name = Path(file.filename or "upload.bin").name
         safe_name = "".join(character if character.isalnum() or character in "._-" else "_" for character in original_name)
-        suffix = Path(safe_name).suffix.lower()
-        if suffix not in {".mp4", ".mov", ".avi", ".mkv", ".m4v"}:
+        intake = validate_video_upload(safe_name, max_upload_bytes=max_upload_bytes)
+        if not intake["ok"]:
             file.file.close()
-            raise HTTPException(status_code=415, detail="Supported video types: mp4, mov, avi, mkv, m4v")
+            raise HTTPException(status_code=intake["status_code"], detail=intake["message"])
 
         upload_dir.mkdir(parents=True, exist_ok=True)
         temporary_path = upload_dir / f"{uuid4().hex}_{safe_name}"
@@ -730,8 +756,9 @@ def create_app(
                     if size > max_upload_bytes:
                         raise HTTPException(status_code=413, detail="Video exceeds the configured upload limit")
                     target.write(chunk)
-            if size == 0:
-                raise HTTPException(status_code=422, detail="Uploaded video is empty")
+            intake = validate_video_upload(safe_name, size, max_upload_bytes=max_upload_bytes)
+            if not intake["ok"]:
+                raise HTTPException(status_code=intake["status_code"], detail=intake["message"])
 
             try:
                 preflight = video_preflight(temporary_path)

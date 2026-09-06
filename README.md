@@ -2,13 +2,24 @@
 
 Research code for candidate-aware, camera-based heart-rate estimation with an explicit release/review output contract.
 
+**Manuscript status:** Accepted for publication in *npj Cardiovascular Health*, as reported by the authors on 6 September 2026. An online publication date, journal article URL and DOI are not asserted here. The public code is a research artifact, not a validated clinical system.
+
 **[Project website](https://shikiryo1.github.io/VitalsSight-candidate-aware-rPPG/)** | **[Author manuscript (PDF)](docs/manuscript/VitalsSight_NPJ_DM_manuscript.pdf)** | **[Editable Figure 1](docs/manuscript/VitalsSight_Figure1_v50_Evidence_Compass_Provenance_editable.pptx)** | **[Native macOS downloads](https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/releases/tag/v0.2.0-macos.1)** | **[Extended audit package](reproducibility/v32_submission/)** | **[Data boundary](docs/DATA.md)**
 
 VitalsSight is a candidate-aware supervised framework for camera-based heart-rate monitoring. It retains competing pulse candidates from regional, classical, learned, transformer and optional correction routes before relation-aware selection, then reports the selected heart rate, its evidence packet and a proposed release/review state as separate outputs. The repository accompanies the author manuscript *VitalsSight: A Candidate-Aware Framework and Auditable Output Contract for Contactless Heart Rate Monitoring*.
 
-[![Final VitalsSight mechanism figure](docs/assets/project-page/method-overview.png)](docs/assets/project-page/method-overview.png)
+[![VitalsSight candidate-aware communication schematic](docs/assets/project-page/method-overview-social-20260906.png)](docs/assets/project-page/method-overview-social-20260906.png)
 
-The web figure is the V50 post-PDF visual revision of the same mechanism. Its [editable PowerPoint source](docs/manuscript/VitalsSight_Figure1_v50_Evidence_Compass_Provenance_editable.pptx) changes the presentation, not the equations, metrics or claim boundaries of the author manuscript.
+Communication schematic adapted from manuscript Figure 1; not a quantitative result. It separates candidate construction and selection from the evidence packet, research score and proposed output state. The [earlier V50 figure and editable source](docs/manuscript/README.md) remain archived for provenance; neither illustration changes the manuscript equations or results.
+
+## Start here
+
+- **Try the console:** follow the [first 10 minutes guide](docs/GETTING_STARTED.md), starting with clearly labeled examples before using an authorized video.
+- **Understand the research:** read the manuscript and the evidence boundaries below.
+- **Inspect the software contract:** run the dataset-free synthetic example under [Quick check](#quick-check). It demonstrates state routing, not the trained model's accuracy.
+- **Reproduce scientific results:** first read [the reproducibility status](docs/REPRODUCIBILITY.md). Provider-authorized data, participant-linked intermediate ledgers and model checkpoints are not bundled; this clone is not a complete end-to-end reproduction package.
+
+The practical problem is not only obtaining a heart-rate estimate, but preserving enough evidence to inspect an ambiguous result. VitalsSight explores that problem through traceable candidate selection and a review-oriented research workflow. Prospective clinical utility and beneficial abstention remain unestablished.
 
 ## Quick start
 
@@ -70,7 +81,9 @@ Optional deep-learning dependencies are listed in `requirements-deep.txt` and `r
 
 The default Streamlit entry point is a complete research-product workflow with OIDC-ready organization/role scoping, pseudonymous participant and consent management, role-based operation guides, video-quality qualification, explicit release/review/retake states, a persistent review queue, evidence attribution, governed report versions, longitudinal state context, PDF/JSON/Markdown/CSV/FHIR exports, protocol-bound metrics, and an integration surface. Each non-release report connects the triggering signal and observed value to its policy target, recommended action, verification criterion, and escalation path; every exercised command returns visible feedback.
 
-![VitalsSight evidence operations console](docs/assets/product-console-overview.png)
+![VitalsSight September 2026 research console with guided onboarding and separately labeled synthetic demonstrations](docs/assets/product-console-overview-20260906.png)
+
+The [September source update](docs/RELEASE_NOTES_20260906.md) adds guided onboarding, local readiness diagnostics, shared UI/API upload checks and participant/consent-bound preview invalidation. The screenshot uses synthetic demonstrations; it is not a participant result or clinical evidence. The previously published native macOS packages have not been rebuilt for this source update.
 
 ```bash
 python scripts/setup_runtime_assets.py
@@ -160,12 +173,14 @@ The manuscript-reported finite conformance replay used seven hash-locked MCD-rPP
 
 ## Quick check
 
-The public example exercises label-free ROI candidate aggregation and the release/review contract without downloading a dataset:
+The public example uses five hand-written synthetic candidate rows and separate illustrative gate inputs. It exercises label-free ROI candidate aggregation and the release/review contract without downloading a dataset; it does not run the trained supervised selector or reproduce manuscript accuracy:
 
 ```bash
 python examples/candidate_release_demo.py
 python -m pytest -q
 ```
+
+Install `requirements-dev.txt` to run the full test suite. The manuscript's 50-test conformance record is a historical run, not a claim about the number or outcome of tests in every later checkout. The aggregate-only historical audit can be checked separately with `python reproducibility/v32_submission/scripts/verify_package.py`; see the [LF checksum provenance note](reproducibility/v32_submission/CHECKSUM_PROVENANCE.md).
 
 ## Dataset configuration
 
@@ -186,9 +201,9 @@ The current 26-page author manuscript is available as a versioned repository art
 
 > Yuhui Wu, Zhe Chen, Kai Li, Rob M. Ewing, Zehor Belkhatir and Yihua Wang. *VitalsSight: A Candidate-Aware Framework and Auditable Output Contract for Contactless Heart Rate Monitoring*.
 
-This PDF is the author-final manuscript supplied on 5 August 2026. It is made available for research transparency and is not represented here as peer reviewed, accepted or formally published. File provenance and SHA-256 are recorded in [`docs/manuscript/README.md`](docs/manuscript/README.md).
+This PDF is the same 26-page author manuscript re-supplied on 6 September 2026; its SHA-256 is identical to the previously archived copy. The authors report acceptance for publication in *npj Cardiovascular Health*. This unchanged archived author file is not represented as the publisher's version of record; the online publication date and DOI will be added when verified. The legacy filename is retained as an artifact identifier, not a statement of the journal. File provenance and SHA-256 are recorded in [`docs/manuscript/README.md`](docs/manuscript/README.md).
 
-The current website uses the later V50 visual revision of Figure 1. The [editable PPTX](docs/manuscript/VitalsSight_Figure1_v50_Evidence_Compass_Provenance_editable.pptx) is provided separately so that the manuscript PDF remains an unchanged, hash-verifiable artifact.
+The current website uses a communication schematic adapted from manuscript Figure 1. The earlier V50 [editable PPTX](docs/manuscript/VitalsSight_Figure1_v50_Evidence_Compass_Provenance_editable.pptx) remains separately archived. The manuscript PDF remains unchanged and hash-verifiable. See [the September update notes](docs/RELEASE_NOTES_20260906.md) for the precise scope of this documentation and presentation update.
 
 ## Manuscript experiment map
 
