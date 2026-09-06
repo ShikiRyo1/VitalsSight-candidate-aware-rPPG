@@ -11,7 +11,16 @@ h5py
 # standard cv2 surface. Installing both OpenCV distributions makes frozen
 # applications non-deterministic because both packages own the same cv2 files.
 opencv-contrib-python==4.11.0.86
-mediapipe
+# Apple Silicon rollback candidate: 0.10.35 passed asset-enabled source smoke:
+# https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/actions/runs/29889529218
+# 1.0.1 aborts in native Tasks initialization in the current macOS source smoke:
+# https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/actions/runs/34046071890
+# Similar upstream report; shared root cause is not independently confirmed:
+# https://github.com/google-ai-edge/mediapipe/issues/6356
+# 0.10.35 still uses Tasks, not legacy solutions, and has no Intel macOS wheel.
+# New macOS CI must revalidate this rollback; other platforms retain resolution.
+mediapipe==0.10.35; sys_platform == "darwin" and platform_machine == "arm64"
+mediapipe; sys_platform != "darwin" or platform_machine != "arm64"
 streamlit
 fastapi
 uvicorn

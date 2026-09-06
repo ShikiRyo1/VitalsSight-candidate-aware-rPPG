@@ -1,6 +1,6 @@
 # September 2026 research-console, presentation and integrity update
 
-This is a source-based research-console, documentation, communication and public-package verification update. It is not a new trained-model release, a rerun of the scientific experiments, or a clinical-validation claim. Existing native macOS binaries were not rebuilt.
+This is a source-based research-console, documentation, communication and public-package verification update. It is not a new trained-model release, a rerun of the scientific experiments, or a clinical-validation claim. Previously published native macOS Release assets have not been replaced; push-triggered CI build artifacts are separate.
 
 ## Research-console improvements
 
@@ -35,6 +35,7 @@ Within the historical package, only the verifier and new verification tests/docu
 ## Current verification (6 September 2026)
 
 - Windows, Python 3.12.14, isolated virtual environment: `python -m pytest -q` — **184 passed** in 24.95 seconds, with two upstream Starlette/httpx/AnyIO deprecation warnings. Includes 25 console helper / Streamlit AppTest cases, readiness and API regression tests, and existing identity/consent/organization checks.
+- After installing and verifying the pinned Face Landmarker Tasks asset, the full Windows suite was rerun: **184 passed** in 30.85 seconds, two dependency warnings. The existing synthetic dark-video assistant workflow also passed independently with native Tasks initialization. Synthetic video exercises software paths, not participant accuracy.
 - Public historical package verifier — **PASS**: 47 exact public-file hashes, 17 CRLF-to-LF aggregate lineage checks, 14 Python sources compiled, plus the recorded contract and aggregate-metric checks. This verifies artifacts, not experiment recomputation.
 - Dataset-free synthetic candidate-release example — **PASS**; no trained selector or participant accuracy claim.
 - Existing project-page browser harness — **PASS** at 1440 × 900 desktop and 390 × 844 mobile: image loading, internal anchors, PDF resource, horizontal layout, mobile menu and copy control.
@@ -42,6 +43,12 @@ Within the historical package, only the verifier and new verification tests/docu
 - Local HTTP readiness endpoint responded successfully. The result explicitly reports `runtime_execution_verified=false`, `measurement_release_authorized=false` and `clinical_validity_established=false`; advisory warnings are not a raw-video execution pass.
 
 The console browser emitted no JavaScript errors in these exercised paths. Browser feature-policy and iframe-sandbox warnings from existing components were observed; this is not a zero-warning, full accessibility or hardened-hosting audit. These finite checks do not rerun private real-video fixtures, optional local-AI/multimodal models, macOS packaging, the full trained deep pipeline or prospective clinical evaluation.
+
+## macOS dependency regression and mitigation
+
+The first update's public-contract CI and Pages deployment succeeded. Its [macOS source smoke job](https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/actions/runs/34046071890/job/101521224399) started the launcher but aborted during an existing synthetic dark-video test inside MediaPipe 1.0.1 native Face Landmarker initialization (exit 134). The exception was not a Python assertion failure. This does not establish an exact native root cause.
+
+A [new upstream report](https://github.com/google-ai-edge/mediapipe/issues/6356) describes a similar macOS arm64 Tasks abort with 1.0.1. It is supporting evidence, not maintainer-confirmed equivalence to this CI failure. The repository's [previously successful macOS source workflow](https://github.com/ShikiRyo1/VitalsSight-candidate-aware-rPPG/actions/runs/29889529218) used 0.10.35. The dependency is therefore narrowly pinned to that version on **macOS arm64 only**; Intel macOS and other platforms keep their existing requirement. This boundary matters because 0.10.35 has no published Intel macOS wheel. The arm64 wheel retains the Tasks Face Landmarker path rather than switching this wrapper to legacy FaceMesh. Inference code, gates and tests are not disabled or changed. A fresh macOS CI run is required to verify this mitigation; the first failure must not be represented as a platform pass.
 
 ## Continuing boundaries
 

@@ -83,7 +83,7 @@ The default Streamlit entry point is a complete research-product workflow with O
 
 ![VitalsSight September 2026 research console with guided onboarding and separately labeled synthetic demonstrations](docs/assets/product-console-overview-20260906.png)
 
-The [September source update](docs/RELEASE_NOTES_20260906.md) adds guided onboarding, local readiness diagnostics, shared UI/API upload checks and participant/consent-bound preview invalidation. The screenshot uses synthetic demonstrations; it is not a participant result or clinical evidence. The previously published native macOS packages have not been rebuilt for this source update.
+The [September source update](docs/RELEASE_NOTES_20260906.md) adds guided onboarding, local readiness diagnostics, shared UI/API upload checks and participant/consent-bound preview invalidation. The screenshot uses synthetic demonstrations; it is not a participant result or clinical evidence. Previously published native macOS Release downloads have not been replaced. See the release notes for the macOS dependency regression and its separately verified mitigation status.
 
 ```bash
 python scripts/setup_runtime_assets.py

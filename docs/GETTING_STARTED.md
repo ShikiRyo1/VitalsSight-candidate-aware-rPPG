@@ -1,6 +1,6 @@
 # First 10 minutes with VitalsSight
 
-This guide is for the source-based research console, not the archived native macOS binary. The September 2026 source update does not rebuild that binary.
+This guide is for the source-based research console, not the earlier native macOS binary. The September 2026 source update does not replace the previously published native Release downloads; CI build artifacts are separate. Check the release notes for current platform-verification status.
 
 ## 1. Start a local research workspace
 
